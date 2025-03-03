@@ -267,3 +267,23 @@ class MeshRepeatedCylindersTerrainCfg(MeshRepeatedObjectsTerrainCfg):
     """The box curriculum parameters at the start of the curriculum."""
     object_params_end: ObjectCfg = MISSING
     """The box curriculum parameters at the end of the curriculum."""
+
+
+@configclass
+class MeshKneeKnockerTerrainCfg(SubTerrainBaseCfg):
+    """Configuration for a knee knockers terrain."""
+
+    function = mesh_terrains.knee_knocker_terrain
+
+    door_width: float = 0.0
+    """The width of the border around the terrain (in m). Defaults to 0.0.
+
+    The border is a flat terrain with the same height as the terrain.
+    """
+    step_height_range: tuple[float, float] = MISSING
+    """The minimum and maximum height of the knee knocker base step (in m)."""
+    step_width: float = 0.765
+    """The width of the knee knocker base step (in m)."""
+
+    x_offset: float=0.2
+    """Offset of the door in the x-direction (in m)."""

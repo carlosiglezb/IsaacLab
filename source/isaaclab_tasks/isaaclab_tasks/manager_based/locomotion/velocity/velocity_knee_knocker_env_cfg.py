@@ -30,6 +30,8 @@ import isaaclab_tasks.manager_based.locomotion.velocity.mdp as mdp
 # Pre-defined configs
 ##
 from isaaclab.terrains.config.rough import ROUGH_TERRAINS_CFG  # isort: skip
+from isaaclab.terrains.config.navy import NAVY_TERRAINS_CFG  # isort: skip
+
 
 cwd = os.getcwd()
 ##
@@ -74,6 +76,27 @@ class KneeKnockerSceneCfg(InteractiveSceneCfg):
     #         pos=(0.25, 0., 0.0),
     #         rot=(0.707, 0, 0, 0.707))
     # )
+
+    door = TerrainImporterCfg(
+        prim_path="/World/FixedDoor",
+        terrain_type="generator",
+        terrain_generator=NAVY_TERRAINS_CFG,
+        max_init_terrain_level=4,
+        collision_group=-1,
+        physics_material=sim_utils.RigidBodyMaterialCfg(
+            friction_combine_mode="multiply",
+            restitution_combine_mode="multiply",
+            static_friction=1.0,
+            dynamic_friction=1.0,
+        ),
+        visual_material=sim_utils.MdlFileCfg(
+            mdl_path=f"{ISAACLAB_NUCLEUS_DIR}/Materials/TilesMarbleSpiderWhiteBrickBondHoned/TilesMarbleSpiderWhiteBrickBondHoned.mdl",
+            project_uvw=True,
+            texture_scale=(0.25, 0.25),
+        ),
+        debug_vis=False,
+    )
+
 
     # robots
     robot: ArticulationCfg = MISSING
@@ -148,12 +171,12 @@ class ObservationsCfg:
         joint_pos = ObsTerm(func=mdp.joint_pos_rel, noise=Unoise(n_min=-0.01, n_max=0.01))
         joint_vel = ObsTerm(func=mdp.joint_vel_rel, noise=Unoise(n_min=-1.5, n_max=1.5))
         actions = ObsTerm(func=mdp.last_action)
-        # height_scan = ObsTerm(
-        #     func=mdp.height_scan,
-        #     params={"sensor_cfg": SceneEntityCfg("height_scanner")},
-        #     noise=Unoise(n_min=-0.1, n_max=0.1),
-        #     clip=(-1.0, 1.0),
-        # )
+        height_scan = ObsTerm(
+            func=mdp.height_scan,
+            params={"sensor_cfg": SceneEntityCfg("height_scanner")},
+            noise=Unoise(n_min=-0.1, n_max=0.1),
+            clip=(-1.0, 1.0),
+        )
 
         def __post_init__(self):
             self.enable_corruption = True
@@ -227,12 +250,12 @@ class EventCfg:
     )
 
     # interval
-    push_robot = EventTerm(
-        func=mdp.push_by_setting_velocity,
-        mode="interval",
-        interval_range_s=(10.0, 15.0),
-        params={"velocity_range": {"x": (-0.5, 0.5), "y": (-0.5, 0.5)}},
-    )
+    # push_robot = EventTerm(
+    #     func=mdp.push_by_setting_velocity,
+    #     mode="interval",
+    #     interval_range_s=(10.0, 15.0),
+    #     params={"velocity_range": {"x": (-0.5, 0.5), "y": (-0.5, 0.5)}},
+    # )
 
 
 @configclass
@@ -245,6 +268,9 @@ class RewardsCfg:
     )
     track_ang_vel_z_exp = RewTerm(
         func=mdp.track_ang_vel_z_exp, weight=0.5, params={"command_name": "base_velocity", "std": math.sqrt(0.25)}
+    )
+    x_displacement = RewTerm(
+        func=mdp.base_x_displacement_softmax, weight=10.0
     )
     # -- penalties
     lin_vel_z_l2 = RewTerm(func=mdp.lin_vel_z_l2, weight=-2.0)
@@ -276,18 +302,21 @@ class TerminationsCfg:
     """Termination terms for the MDP."""
 
     time_out = DoneTerm(func=mdp.time_out, time_out=True)
-    base_contact = DoneTerm(
-        func=mdp.illegal_contact,
-        params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names="base"), "threshold": 1.0},
-    )
-    torso_height = DoneTerm(func=mdp.root_height_below_minimum, params={"minimum_height": 0.6})
+    # base_contact = DoneTerm(
+    #     func=mdp.illegal_contact,
+    #     params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names="base"), "threshold": 1.0},
+    # )
+    torso_height = DoneTerm(func=mdp.root_height_below_minimum, params={"minimum_height": 0.45})
+    torso_xy_bounds = DoneTerm(func=mdp.root_out_of_xy_bounds,
+                               params={"x_domain": (-1., 2.5),
+                                       "y_domain": (-2.0, 2.0)})
 
 
 @configclass
 class CurriculumCfg:
     """Curriculum terms for the MDP."""
 
-    terrain_levels = CurrTerm(func=mdp.terrain_levels_vel)
+    terrain_levels = CurrTerm(func=mdp.knee_knocker_levels_vel)
 
 
 ##
@@ -332,8 +361,8 @@ class LocomotionVelocityKneeKnockerEnvCfg(ManagerBasedRLEnvCfg):
         # check if terrain levels curriculum is enabled - if so, enable curriculum for terrain generator
         # this generates terrains with increasing difficulty and is useful for training
         if getattr(self.curriculum, "terrain_levels", None) is not None:
-            if self.scene.terrain.terrain_generator is not None:
-                self.scene.terrain.terrain_generator.curriculum = True
+            if self.scene.door.terrain_generator is not None:
+                self.scene.door.terrain_generator.curriculum = True
         else:
-            if self.scene.terrain.terrain_generator is not None:
-                self.scene.terrain.terrain_generator.curriculum = False
+            if self.scene.door.terrain_generator is not None:
+                self.scene.door.terrain_generator.curriculum = False

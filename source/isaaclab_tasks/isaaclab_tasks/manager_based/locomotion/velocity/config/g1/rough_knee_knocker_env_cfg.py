@@ -14,6 +14,7 @@ from isaaclab_tasks.manager_based.locomotion.velocity.velocity_knee_knocker_env_
 # Pre-defined configs
 ##
 from isaaclab_assets import G1_CFG  # isort: skip
+from isaaclab_assets import G1_PRIMITIVE_COLLISIONS  # isort: skip
 
 
 @configclass
@@ -108,7 +109,7 @@ class G1RoughKneeKnockerEnvCfg(LocomotionVelocityKneeKnockerEnvCfg):
         # post init of parent
         super().__post_init__()
         # Scene
-        self.scene.robot = G1_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
+        self.scene.robot = G1_PRIMITIVE_COLLISIONS.replace(prim_path="{ENV_REGEX_NS}/Robot")
         self.scene.height_scanner.prim_path = "{ENV_REGEX_NS}/Robot/torso_link"
 
         # Randomization
@@ -117,7 +118,7 @@ class G1RoughKneeKnockerEnvCfg(LocomotionVelocityKneeKnockerEnvCfg):
         self.events.reset_robot_joints.params["position_range"] = (1.0, 1.0)
         self.events.base_external_force_torque.params["asset_cfg"].body_names = ["torso_link"]
         self.events.reset_base.params = {
-            "pose_range": {"x": (-0.5, 0.5), "y": (-0.5, 0.5), "yaw": (-3.14, 3.14)},
+            "pose_range": {"x": (-0.1, 0.1), "y": (-0.2, 0.2), "yaw": (-0.25, 0.25)},
             "velocity_range": {
                 "x": (0.0, 0.0),
                 "y": (0.0, 0.0),
@@ -135,11 +136,11 @@ class G1RoughKneeKnockerEnvCfg(LocomotionVelocityKneeKnockerEnvCfg):
         self.rewards.action_rate_l2.weight = -0.005
         self.rewards.dof_acc_l2.weight = -1.25e-7
         self.rewards.dof_acc_l2.params["asset_cfg"] = SceneEntityCfg(
-            "robot", joint_names=[".*_hip_.*", ".*_knee_joint"]
+            "robot", joint_names=[".*_hip_.*"]
         )
         self.rewards.dof_torques_l2.weight = -1.5e-7
         self.rewards.dof_torques_l2.params["asset_cfg"] = SceneEntityCfg(
-            "robot", joint_names=[".*_hip_.*", ".*_knee_joint", ".*_ankle_.*"]
+            "robot", joint_names=[".*_hip_.*", ".*_ankle_.*"]
         )
 
         # Commands
@@ -148,7 +149,7 @@ class G1RoughKneeKnockerEnvCfg(LocomotionVelocityKneeKnockerEnvCfg):
         self.commands.base_velocity.ranges.ang_vel_z = (-1.0, 1.0)
 
         # terminations
-        self.terminations.base_contact.params["sensor_cfg"].body_names = "torso_link"
+        # self.terminations.base_contact.params["sensor_cfg"].body_names = "torso_link"
 
 
 @configclass

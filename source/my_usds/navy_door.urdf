@@ -22,21 +22,21 @@
     <collision>
       <origin rpy="0 0 0" xyz="0 -0.025 0.2"/>
       <geometry>
-         <box size="1.4 0.05 0.4"/>
+         <box size="3.0 0.05 0.4"/>
       </geometry>
     </collision>
     <!-- left column of knee-knocker -->
     <collision>
-      <origin rpy="0 0 0" xyz="-0.641 -0.025 1.1"/>
+      <origin rpy="0 0 0" xyz="-0.941 -0.025 1.1"/>
       <geometry>
-         <box size="0.518 0.05 2.2"/>
+         <box size="1.118 0.05 2.2"/>
       </geometry>
     </collision>
     <!-- right column of knee-knocker -->
     <collision>
-      <origin rpy="0 0 0" xyz="0.641 -0.025 1.1"/>
+      <origin rpy="0 0 0" xyz="0.941 -0.025 1.1"/>
       <geometry>
-         <box size="0.518 0.05 2.2"/>
+         <box size="1.118 0.05 2.2"/>
       </geometry>
     </collision>
   </link>

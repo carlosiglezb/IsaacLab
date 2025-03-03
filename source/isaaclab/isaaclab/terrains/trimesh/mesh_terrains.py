@@ -855,3 +855,50 @@ def repeated_objects_terrain(
     meshes_list.append(platform)
 
     return meshes_list, origin
+
+
+def knee_knocker_terrain(
+    difficulty: float, cfg: mesh_terrains_cfg.MeshKneeKnockerTerrainCfg
+) -> tuple[list[trimesh.Trimesh], np.ndarray]:
+    """Generate a terrain with several knee knocker patterns.
+
+    The terrain contains a knee knocker at the center of the terrain with varying door dimensions.
+s
+    Args:
+        difficulty: The difficulty of the knee knockers. This is a value between 0 and 1.
+        cfg: The configuration for the terrain.
+
+    Returns:
+        A tuple containing the tri-mesh of the knee knocker terrain and the origin of the terrain (in m).
+    """
+    # resolve the terrain configuration
+    step_height = cfg.step_height_range[0] + difficulty * (cfg.step_height_range[1] - cfg.step_height_range[0])
+
+    # generate the terrain
+    # -- compute the position of the center of the terrain
+    terrain_center = [0.5 * cfg.size[0], 0.5 * cfg.size[1], 0.0]
+
+    # -- generate door
+    # base
+    base_dims = (0.05, cfg.door_width, step_height)
+    base_pos = (terrain_center[0] + cfg.x_offset, terrain_center[1], step_height/2.)
+    base_bottom = trimesh.creation.box(base_dims, trimesh.transformations.translation_matrix(base_pos))
+    # left wall
+    left_wall_dims = (0.05, (cfg.door_width - cfg.step_width)/2, 2.2)
+    left_wall_pos = (base_pos[0],
+                     base_pos[1] - (cfg.step_width / 2) - (cfg.door_width - cfg.step_width) / 4,
+                     2.2/2.)
+    left_wall = trimesh.creation.box(left_wall_dims, trimesh.transformations.translation_matrix(left_wall_pos))
+    # right wall
+    right_wall_dims = (0.05, (cfg.door_width - cfg.step_width)/2, 2.2)
+    right_wall_pos = (base_pos[0],
+                      base_pos[1] + (cfg.step_width / 2) + (cfg.door_width - cfg.step_width) / 4,
+                     2.2/2.)
+    right_wall = trimesh.creation.box(right_wall_dims, trimesh.transformations.translation_matrix(right_wall_pos))
+    meshes_list = [base_bottom, right_wall, left_wall]
+
+    # origin of the terrain
+    origin = np.array([terrain_center[0], terrain_center[1], 0.])
+
+    return meshes_list, origin
+

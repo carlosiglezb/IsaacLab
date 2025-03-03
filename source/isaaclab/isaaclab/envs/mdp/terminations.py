@@ -72,6 +72,26 @@ def root_height_below_minimum(
     return asset.data.root_pos_w[:, 2] < minimum_height
 
 
+def root_out_of_xy_bounds(
+    env: ManagerBasedRLEnv, x_domain: tuple[float, float], y_domain: tuple[float, float], asset_cfg: SceneEntityCfg = SceneEntityCfg("robot")
+) -> torch.Tensor:
+    """Terminate when the asset's root xy-position is out of the prescribed x- and y-domain.
+
+    Note:
+        Check this condition as x- and y-bounds are specified in local coordinates but asset might be
+        specified in world-co   ordinates.
+    """
+    # extract the used quantities (to enable type-hinting)
+    asset: RigidObject = env.scene[asset_cfg.name]
+    current_x_pos = asset.data.root_pos_w[:, 0]
+    current_y_pos = asset.data.root_pos_w[:, 1]
+    init_x_pos = env.scene.env_origins[:, 0]
+    init_y_pos = env.scene.env_origins[:, 1]
+    out_of_x_bounds = torch.logical_or((current_x_pos - init_x_pos) < x_domain[0], (current_x_pos - init_x_pos) > x_domain[1])
+    out_of_y_bounds = torch.logical_or((current_y_pos - init_y_pos) < y_domain[0], (current_y_pos - init_y_pos) > y_domain[1])
+    return torch.logical_or(out_of_x_bounds, out_of_y_bounds)
+
+
 """
 Joint terminations.
 """

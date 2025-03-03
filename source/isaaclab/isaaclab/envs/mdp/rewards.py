@@ -128,6 +128,24 @@ def body_lin_acc_l2(env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg = SceneEnt
     return torch.sum(torch.norm(asset.data.body_lin_acc_w[:, asset_cfg.body_ids, :], dim=-1), dim=1)
 
 
+def base_x_displacement_softmax(
+    env: ManagerBasedRLEnv,
+    asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+    sensor_cfg: SceneEntityCfg | None = None,
+) -> torch.Tensor:
+    """Rewards asset x-position displacement from its origin using a softmax function.
+
+    Note:
+        For flat terrain, target height is in the world frame. For rough terrain,
+        sensor readings can adjust the target height to account for the terrain.
+    """
+    # extract the used quantities (to enable type-hinting)
+    asset: RigidObject = env.scene[asset_cfg.name]
+
+    x_displacement = asset.data.root_pos_w[:, 0] - env.scene.env_origins[:, 0]
+    # Compute the softmax reward
+    return torch.softmax(x_displacement, 0)
+
 """
 Joint penalties.
 """

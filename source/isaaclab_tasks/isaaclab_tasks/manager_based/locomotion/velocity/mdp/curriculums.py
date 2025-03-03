@@ -53,3 +53,31 @@ def terrain_levels_vel(
     terrain.update_env_origins(env_ids, move_up, move_down)
     # return the mean terrain level
     return torch.mean(terrain.terrain_levels.float())
+
+
+def knee_knocker_levels_vel(
+    env: ManagerBasedRLEnv, env_ids: Sequence[int], asset_cfg: SceneEntityCfg = SceneEntityCfg("robot")
+): # -> torch.Tensor:
+    """Curriculum based on the distance the robot walked when commanded to move at a desired velocity.
+
+    This term is used to increase the height of the knee knocker when the robot walks far enough and decrease the
+    difficulty when the robot walks less than half of the distance required by the commanded velocity.
+
+    Returns:
+        The mean terrain level for the given environment ids.
+    """
+    # extract the used quantities (to enable type-hinting)
+    asset: Articulation = env.scene[asset_cfg.name]
+    door: TerrainImporter = env.scene.terrain
+    command = env.command_manager.get_command("base_velocity")
+    # compute the distance in the x-direction that the robot walked
+    distance_x = asset.data.root_pos_w[env_ids, 0] - env.scene.env_origins[env_ids, 0]
+    # robots that walked far enough/pass door progress to harder terrains
+    move_up = distance_x > door.cfg.terrain_generator.size[0] / 3
+    # robots that walked less than half of their required distance go to simpler terrains
+    move_down = distance_x < torch.norm(command[env_ids, :2], dim=1) * env.max_episode_length_s * 0.5
+    move_down += ~move_up
+    # update terrain levels
+    door.update_env_origins(env_ids, move_up, move_down)
+    # return the mean terrain level
+    return torch.mean(door.terrain_levels.float())
