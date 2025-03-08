@@ -118,7 +118,7 @@ class G1RoughKneeKnockerEnvCfg(LocomotionVelocityKneeKnockerEnvCfg):
         self.events.reset_robot_joints.params["position_range"] = (1.0, 1.0)
         self.events.base_external_force_torque.params["asset_cfg"].body_names = ["torso_link"]
         self.events.reset_base.params = {
-            "pose_range": {"x": (-0.1, 0.1), "y": (-0.2, 0.2), "yaw": (-0.25, 0.25)},
+            "pose_range": {"x": (-0.1, 0.1), "y": (-0.1, 0.1), "yaw": (-0.25, 0.25)},
             "velocity_range": {
                 "x": (0.0, 0.0),
                 "y": (0.0, 0.0),
@@ -131,7 +131,6 @@ class G1RoughKneeKnockerEnvCfg(LocomotionVelocityKneeKnockerEnvCfg):
 
         # Rewards
         self.rewards.lin_vel_z_l2.weight = 0.0
-        self.rewards.undesired_contacts = None
         self.rewards.flat_orientation_l2.weight = -1.0
         self.rewards.action_rate_l2.weight = -0.005
         self.rewards.dof_acc_l2.weight = -1.25e-7
@@ -163,12 +162,12 @@ class G1RoughKneeKnockerEnvCfg_PLAY(G1RoughKneeKnockerEnvCfg):
         self.scene.env_spacing = 2.5
         self.episode_length_s = 40.0
         # spawn the robot randomly in the grid (instead of their terrain levels)
-        self.scene.terrain.max_init_terrain_level = None
+        # self.scene.terrain.max_init_terrain_level = None
         # reduce the number of terrains to save memory
-        if self.scene.terrain.terrain_generator is not None:
-            self.scene.terrain.terrain_generator.num_rows = 5
-            self.scene.terrain.terrain_generator.num_cols = 5
-            self.scene.terrain.terrain_generator.curriculum = False
+        # if self.scene.terrain.terrain_generator is not None:
+        #     self.scene.terrain.terrain_generator.num_rows = 5
+        #     self.scene.terrain.terrain_generator.num_cols = 5
+        #     self.scene.terrain.terrain_generator.curriculum = False
 
         self.commands.base_velocity.ranges.lin_vel_x = (1.0, 1.0)
         self.commands.base_velocity.ranges.lin_vel_y = (0.0, 0.0)
