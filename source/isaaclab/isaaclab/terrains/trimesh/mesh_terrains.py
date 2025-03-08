@@ -895,7 +895,9 @@ s
                       base_pos[1] + (cfg.step_width / 2) + (cfg.door_width - cfg.step_width) / 4,
                      2.2/2.)
     right_wall = trimesh.creation.box(right_wall_dims, trimesh.transformations.translation_matrix(right_wall_pos))
-    meshes_list = [base_bottom, right_wall, left_wall]
+
+    plane_mesh = make_plane(cfg.size, 0.0, center_zero=False)
+    meshes_list = [plane_mesh, base_bottom, right_wall, left_wall]
 
     # origin of the terrain
     origin = np.array([terrain_center[0], terrain_center[1], 0.])
