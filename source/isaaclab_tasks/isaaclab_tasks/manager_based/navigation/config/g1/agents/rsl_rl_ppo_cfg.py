@@ -11,7 +11,7 @@ from isaaclab.utils import configclass
 @configclass
 class NavigationEnvPPORunnerCfg(RslRlOnPolicyRunnerCfg):
     num_steps_per_env = 24
-    max_iterations = 1500
+    max_iterations = 3000
     save_interval = 500
     experiment_name = "g1_navigation_knee_knocker"
     empirical_normalization = False
@@ -35,3 +35,8 @@ class NavigationEnvPPORunnerCfg(RslRlOnPolicyRunnerCfg):
         desired_kl=0.01,
         max_grad_norm=1.0,
     )
+
+    # loading previously trained models
+    # resume = True
+    # load_run = "logs/rsl_rl/g1_navigation_knee_knocker/2025-03-07_00-27-29/"
+    # load_checkpoint = "model_1499.pt"
