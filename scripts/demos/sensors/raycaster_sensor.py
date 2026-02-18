@@ -1,15 +1,14 @@
-# Copyright (c) 2022-2025, The Isaac Lab Project Developers.
+# Copyright (c) 2022-2026, The Isaac Lab Project Developers (https://github.com/isaac-sim/IsaacLab/blob/main/CONTRIBUTORS.md).
 # All rights reserved.
 #
 # SPDX-License-Identifier: BSD-3-Clause
 
 import argparse
-import numpy as np
 
 from isaaclab.app import AppLauncher
 
 # add argparse arguments
-parser = argparse.ArgumentParser(description="Tutorial on adding sensors on a robot.")
+parser = argparse.ArgumentParser(description="Example on using the raycaster sensor.")
 parser.add_argument("--num_envs", type=int, default=1, help="Number of environments to spawn.")
 # append AppLauncher cli args
 AppLauncher.add_app_launcher_args(parser)
@@ -22,6 +21,7 @@ simulation_app = app_launcher.app
 
 """Rest everything follows."""
 
+import numpy as np
 import torch
 
 import isaaclab.sim as sim_utils
@@ -63,7 +63,7 @@ class RaycasterSensorSceneCfg(InteractiveSceneCfg):
         update_period=1 / 60,
         offset=RayCasterCfg.OffsetCfg(pos=(0, 0, 0.5)),
         mesh_prim_paths=["/World/Ground"],
-        attach_yaw_only=True,
+        ray_alignment="yaw",
         pattern_cfg=patterns.LidarPatternCfg(
             channels=100, vertical_fov_range=[-90, 90], horizontal_fov_range=[-90, 90], horizontal_res=1.0
         ),
@@ -83,7 +83,6 @@ def run_simulator(sim: sim_utils.SimulationContext, scene: InteractiveScene):
 
     # Simulate physics
     while simulation_app.is_running():
-
         if count % 500 == 0:
             # reset counter
             count = 0

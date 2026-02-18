@@ -1,4 +1,4 @@
-# Copyright (c) 2022-2025, The Isaac Lab Project Developers.
+# Copyright (c) 2022-2026, The Isaac Lab Project Developers (https://github.com/isaac-sim/IsaacLab/blob/main/CONTRIBUTORS.md).
 # All rights reserved.
 #
 # SPDX-License-Identifier: BSD-3-Clause
@@ -7,10 +7,11 @@
 
 from __future__ import annotations
 
-import torch
 from collections.abc import Callable, Sequence
 from dataclasses import MISSING
 from typing import Literal
+
+import torch
 
 from isaaclab.utils import configclass
 
@@ -55,16 +56,16 @@ class GridPatternCfg(PatternBaseCfg):
     """Specifies the ordering of points in the generated grid. Defaults to ``"xy"``.
 
     Consider a grid pattern with points at :math:`(x, y)` where :math:`x` and :math:`y` are the grid indices.
-    The ordering of the points can be specified as "xy" or "yx". This determines the outer and inner loop order
+    The ordering of the points can be specified as "xy" or "yx". This determines the inner and outer loop order
     when iterating over the grid points.
 
-    * If *"xy"* is selected, the points are ordered with outer loop over "x" and inner loop over "y".
-    * If *"yx"* is selected, the points are ordered with outer loop over "y" and inner loop over "x".
+    * If "xy" is selected, the points are ordered with inner loop over "x" and outer loop over "y".
+    * If "yx" is selected, the points are ordered with inner loop over "y" and outer loop over "x".
 
     For example, the grid pattern points with :math:`X = (0, 1, 2)` and :math:`Y = (3, 4)`:
 
-    * *"xy"* ordering: :math:`[(0, 3), (0, 4), (1, 3), (1, 4), (2, 3), (2, 4)]`
-    * *"yx"* ordering: :math:`[(0, 3), (1, 3), (2, 3), (1, 4), (2, 4), (2, 4)]`
+    * "xy" ordering: :math:`[(0, 3), (1, 3), (2, 3), (1, 4), (2, 4), (2, 4)]`
+    * "yx" ordering: :math:`[(0, 3), (0, 4), (1, 3), (1, 4), (2, 3), (2, 4)]`
     """
 
 
@@ -137,8 +138,8 @@ class PinholeCameraPatternCfg(PatternBaseCfg):
             0 & 0 & 1
             \end{bmatrix},
 
-        where :math:`f_x` and :math:`f_y` are the focal length along x and y direction, while :math:`c_x` and :math:`c_y` are the
-        principle point offsets along x and y direction respectively.
+        where :math:`f_x` and :math:`f_y` are the focal length along x and y direction, while
+        :math:`c_x` and :math:`c_y` are the principle point offsets along x and y direction, respectively.
 
         Args:
             intrinsic_matrix: Intrinsic matrix of the camera in row-major format.

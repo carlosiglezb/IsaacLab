@@ -1,11 +1,11 @@
-# Copyright (c) 2022-2025, The Isaac Lab Project Developers.
+# Copyright (c) 2022-2026, The Isaac Lab Project Developers (https://github.com/isaac-sim/IsaacLab/blob/main/CONTRIBUTORS.md).
 # All rights reserved.
 #
 # SPDX-License-Identifier: BSD-3-Clause
 
-from isaaclab_rl.rsl_rl import RslRlOnPolicyRunnerCfg, RslRlPpoActorCriticCfg, RslRlPpoAlgorithmCfg
-
 from isaaclab.utils import configclass
+
+from isaaclab_rl.rsl_rl import RslRlOnPolicyRunnerCfg, RslRlPpoActorCriticCfg, RslRlPpoAlgorithmCfg
 
 
 @configclass
@@ -15,10 +15,10 @@ class FrankaReachPPORunnerCfg(RslRlOnPolicyRunnerCfg):
     save_interval = 50
     experiment_name = "franka_reach"
     run_name = ""
-    resume = False
-    empirical_normalization = False
     policy = RslRlPpoActorCriticCfg(
         init_noise_std=1.0,
+        actor_obs_normalization=False,
+        critic_obs_normalization=False,
         actor_hidden_dims=[64, 64],
         critic_hidden_dims=[64, 64],
         activation="elu",

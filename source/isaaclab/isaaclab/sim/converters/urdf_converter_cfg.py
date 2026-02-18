@@ -1,4 +1,4 @@
-# Copyright (c) 2022-2025, The Isaac Lab Project Developers.
+# Copyright (c) 2022-2026, The Isaac Lab Project Developers (https://github.com/isaac-sim/IsaacLab/blob/main/CONTRIBUTORS.md).
 # All rights reserved.
 #
 # SPDX-License-Identifier: BSD-3-Clause
@@ -16,6 +16,7 @@ class UrdfConverterCfg(AssetConverterBaseCfg):
 
     @configclass
     class JointDriveCfg:
+        """Configuration for the joint drive."""
 
         @configclass
         class PDGainsCfg:
@@ -96,7 +97,9 @@ class UrdfConverterCfg(AssetConverterBaseCfg):
     """
 
     link_density: float = 0.0
-    """Default density in ``kg/m^3`` for links whose ``"inertial"`` properties are missing in the URDF. Defaults to 0.0."""
+    """Default density in ``kg/m^3`` for links whose ``"inertial"`` properties are missing in the URDF.
+    Defaults to 0.0.
+    """
 
     merge_fixed_joints: bool = True
     """Consolidate links that are connected by fixed joints. Defaults to True."""
@@ -105,16 +108,18 @@ class UrdfConverterCfg(AssetConverterBaseCfg):
     """Convert mimic joints to normal joints. Defaults to False."""
 
     joint_drive: JointDriveCfg | None = JointDriveCfg()
-    """The joint drive settings.
+    """The joint drive settings. Defaults to :class:`JointDriveCfg`.
 
-    None can be used for URDFs without joints.
+    The parameter can be set to ``None`` for URDFs without joints.
     """
 
     collision_from_visuals = False
-    """Create collision geometry from visual geometry."""
+    """Whether to create collision geometry from visual geometry. Defaults to False."""
 
     collider_type: Literal["convex_hull", "convex_decomposition"] = "convex_hull"
-    """The collision shape simplification. Defaults to ``"convex_hull"``.
+    """The collision shape simplification. Defaults to "convex_hull".
+
+    Supported values are:
 
     * ``"convex_hull"``: The collision shape is simplified to a convex hull.
     * ``"convex_decomposition"``: The collision shape is decomposed into smaller convex shapes for a closer fit.

@@ -1,4 +1,4 @@
-# Copyright (c) 2022-2025, The Isaac Lab Project Developers.
+# Copyright (c) 2022-2026, The Isaac Lab Project Developers (https://github.com/isaac-sim/IsaacLab/blob/main/CONTRIBUTORS.md).
 # All rights reserved.
 #
 # SPDX-License-Identifier: BSD-3-Clause
@@ -6,10 +6,13 @@
 """
 Utility to convert a MJCF into USD format.
 
-MuJoCo XML Format (MJCF) is an XML file format used in MuJoCo to describe all elements of a robot. For more information, see: http://www.mujoco.org/book/XMLreference.html
+MuJoCo XML Format (MJCF) is an XML file format used in MuJoCo to describe all elements of a robot.
+For more information, see: http://www.mujoco.org/book/XMLreference.html
 
-This script uses the MJCF importer extension from Isaac Sim (``isaacsim.asset.importer.mjcf``) to convert a MJCF asset into USD format. It is designed as a convenience script for command-line use. For more information on the MJCF importer, see the documentation for the extension:
-https://docs.omniverse.nvidia.com/app_isaacsim/app_isaacsim/ext_omni_isaac_mjcf.html
+This script uses the MJCF importer extension from Isaac Sim (``isaacsim.asset.importer.mjcf``) to convert
+a MJCF asset into USD format. It is designed as a convenience script for command-line use. For more information
+on the MJCF importer, see the documentation for the extension:
+https://docs.isaacsim.omniverse.nvidia.com/latest/robot_setup/ext_isaacsim_asset_importer_mjcf.html
 
 
 positional arguments:
@@ -60,9 +63,9 @@ import contextlib
 import os
 
 import carb
-import isaacsim.core.utils.stage as stage_utils
 import omni.kit.app
 
+import isaaclab.sim as sim_utils
 from isaaclab.sim.converters import MjcfConverter, MjcfConverterCfg
 from isaaclab.utils.assets import check_file_path
 from isaaclab.utils.dict import print_dict
@@ -119,7 +122,7 @@ def main():
     # Simulate scene (if not headless)
     if local_gui or livestream_gui:
         # Open the stage with USD
-        stage_utils.open_stage(mjcf_converter.usd_path)
+        sim_utils.open_stage(mjcf_converter.usd_path)
         # Reinitialize the simulation
         app = omni.kit.app.get_app_interface()
         # Run simulation

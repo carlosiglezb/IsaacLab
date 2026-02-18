@@ -1,4 +1,4 @@
-# Copyright (c) 2022-2025, The Isaac Lab Project Developers.
+# Copyright (c) 2022-2026, The Isaac Lab Project Developers (https://github.com/isaac-sim/IsaacLab/blob/main/CONTRIBUTORS.md).
 # All rights reserved.
 #
 # SPDX-License-Identifier: BSD-3-Clause
@@ -6,6 +6,11 @@
 """
 This script demonstrates how to create a simple environment with a cartpole. It combines the concepts of
 scene, action, observation and event managers to create an environment.
+
+.. code-block:: bash
+
+    ./isaaclab.sh -p scripts/tutorials/03_envs/create_cartpole_base_env.py --num_envs 32
+
 """
 
 """Launch Isaac Sim Simulator first."""
@@ -31,6 +36,7 @@ simulation_app = app_launcher.app
 """Rest everything follows."""
 
 import math
+
 import torch
 
 import isaaclab.envs.mdp as mdp
@@ -135,6 +141,7 @@ def main():
     # parse the arguments
     env_cfg = CartpoleEnvCfg()
     env_cfg.scene.num_envs = args_cli.num_envs
+    env_cfg.sim.device = args_cli.device
     # setup base environment
     env = ManagerBasedEnv(cfg=env_cfg)
 
