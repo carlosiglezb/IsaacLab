@@ -4,6 +4,7 @@
 # SPDX-License-Identifier: BSD-3-Clause
 
 """Script to train RL agent with RSL-RL."""
+import wandb
 
 """Launch Isaac Sim Simulator first."""
 
@@ -71,6 +72,17 @@ torch.backends.cudnn.allow_tf32 = True
 torch.backends.cudnn.deterministic = False
 torch.backends.cudnn.benchmark = False
 
+def log_videos_from_folder(folder_path):
+    """Logs all video files from a given folder to Weights & Biases."""
+
+    for filename in os.listdir(folder_path):
+        if filename.lower().endswith(('.mp4', '.avi', '.mov', '.webm')):  # Add more video extensions if needed
+            video_path = os.path.join(folder_path, filename)
+            try:
+                wandb.log({f"video_{filename}": wandb.Video(video_path)})
+                print(f"Logged: {filename}")
+            except Exception as e:
+                print(f"Error logging {filename}: {e}")
 
 @hydra_task_config(args_cli.task, "rsl_rl_cfg_entry_point")
 def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agent_cfg: RslRlOnPolicyRunnerCfg):
@@ -143,6 +155,10 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
 
     # run training
     runner.learn(num_learning_iterations=agent_cfg.max_iterations, init_at_random_ep_len=True)
+
+    # log videos on wandb
+    if args_cli.video:
+        log_videos_from_folder(log_dir + "/videos/train")
 
     # close the simulator
     env.close()
