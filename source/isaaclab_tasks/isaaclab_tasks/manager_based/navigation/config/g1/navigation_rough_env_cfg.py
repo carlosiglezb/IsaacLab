@@ -7,6 +7,10 @@
 
 import math
 import os
+import isaaclab.sim as sim_utils
+from dataclasses import MISSING
+
+from isaaclab.assets import ArticulationCfg, AssetBaseCfg
 from isaaclab.envs import ManagerBasedRLEnvCfg
 from isaaclab.managers import CurriculumTermCfg as CurrTerm
 from isaaclab.managers import EventTermCfg as EventTerm
@@ -15,17 +19,76 @@ from isaaclab.managers import ObservationTermCfg as ObsTerm
 from isaaclab.managers import RewardTermCfg as RewTerm
 from isaaclab.managers import SceneEntityCfg
 from isaaclab.managers import TerminationTermCfg as DoneTerm
+from isaaclab.scene import InteractiveSceneCfg
+from isaaclab.sensors import ContactSensorCfg, RayCasterCfg, patterns
+from isaaclab.terrains import TerrainImporterCfg
 from isaaclab.utils import configclass
-from isaaclab.utils.assets import ISAACLAB_NUCLEUS_DIR
+from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR, ISAACLAB_NUCLEUS_DIR
 from isaaclab.utils.noise import AdditiveUniformNoiseCfg as Unoise
 
 import isaaclab_tasks.manager_based.navigation.mdp as mdp
 from isaaclab_tasks.manager_based.locomotion.velocity.mdp import feet_slide
-# from isaaclab_tasks.manager_based.locomotion.velocity.config.g1.flat_knee_knocker_env_cfg import G1FlatKneeKnockerEnvCfg
 from isaaclab_tasks.manager_based.locomotion.velocity.velocity_env_cfg import LocomotionVelocityRoughEnvCfg
 
+from isaaclab_assets import G1_MINIMAL_CFG  # isort: skip
+from isaaclab.terrains.config.rough import ROUGH_TERRAINS_CFG  # isort: skip
+
 cwd = os.getcwd()
-LOW_LEVEL_ENV_CFG = LocomotionVelocityRoughEnvCfg()
+
+
+@configclass
+class MySceneCfg(InteractiveSceneCfg):
+    """Configuration for the terrain scene with a legged robot."""
+
+    # ground terrain
+    terrain = TerrainImporterCfg(
+        prim_path="/World/ground",
+        terrain_type="generator",
+        terrain_generator=ROUGH_TERRAINS_CFG,
+        max_init_terrain_level=5,
+        collision_group=-1,
+        physics_material=sim_utils.RigidBodyMaterialCfg(
+            friction_combine_mode="multiply",
+            restitution_combine_mode="multiply",
+            static_friction=1.0,
+            dynamic_friction=1.0,
+        ),
+        visual_material=sim_utils.MdlFileCfg(
+            mdl_path=f"{ISAACLAB_NUCLEUS_DIR}/Materials/TilesMarbleSpiderWhiteBrickBondHoned/TilesMarbleSpiderWhiteBrickBondHoned.mdl",
+            project_uvw=True,
+            texture_scale=(0.25, 0.25),
+        ),
+        debug_vis=False,
+    )
+    # Remove stairs since we haven't adjusted the goal pose height accordingly
+    terrain.terrain_generator.sub_terrains["pyramid_stairs"].proportion = 0
+    terrain.terrain_generator.sub_terrains["pyramid_stairs_inv"].proportion = 0
+    terrain.terrain_generator.sub_terrains["hf_pyramid_slope"].proportion = 0
+    terrain.terrain_generator.sub_terrains["hf_pyramid_slope_inv"].proportion = 0
+    terrain.terrain_generator.sub_terrains["boxes"].proportion = 0.5
+    terrain.terrain_generator.sub_terrains["random_rough"].proportion = 0.5
+
+
+    # robots
+    robot: ArticulationCfg = MISSING
+    # sensors
+    height_scanner = RayCasterCfg(
+        prim_path="{ENV_REGEX_NS}/Robot/torso_link",
+        offset=RayCasterCfg.OffsetCfg(pos=(0.0, 0.0, 20.0)),
+        ray_alignment="yaw",
+        pattern_cfg=patterns.GridPatternCfg(resolution=0.1, size=[1.6, 1.0]),
+        debug_vis=False,
+        mesh_prim_paths=["/World/ground"],
+    )
+    contact_forces = ContactSensorCfg(prim_path="{ENV_REGEX_NS}/Robot/.*", history_length=3, track_air_time=True)
+    # lights
+    sky_light = AssetBaseCfg(
+        prim_path="/World/skyLight",
+        spawn=sim_utils.DomeLightCfg(
+            intensity=750.0,
+            texture_file=f"{ISAAC_NUCLEUS_DIR}/Materials/Textures/Skies/PolyHaven/kloofendal_43d_clear_puresky_4k.hdr",
+        ),
+    )
 
 
 @configclass
@@ -36,7 +99,7 @@ class EventCfg:
         func=mdp.reset_root_state_uniform,
         mode="reset",
         params={
-            "pose_range": {"x": (-0.1, 0.1), "y": (-0.1, 0.1), "yaw": (-0.25, 0.25)},
+            "pose_range": {"x": (-0.5, 0.5), "y": (-0.5, 0.5), "yaw": (-3.14, 3.14)},
             "velocity_range": {
                 "x": (-0.0, 0.0),
                 "y": (-0.0, 0.0),
@@ -54,6 +117,16 @@ class EventCfg:
         params={
             "position_range": (1.0, 1.0),
             "velocity_range": (0.0, 0.0),
+        },
+    )
+
+    base_external_force_torque = EventTerm(
+        func=mdp.apply_external_force_torque,
+        mode="reset",
+        params={
+            "asset_cfg": SceneEntityCfg("robot", body_names="torso_link"),
+            "force_range": (0.0, 0.0),
+            "torque_range": (-0.0, 0.0),
         },
     )
 
@@ -222,15 +295,15 @@ class TerminationsCfg:
 class CurriculumCfg:
     """Curriculum terms for the MDP."""
 
-    terrain_levels = CurrTerm(func=mdp.knee_knocker_levels_pose)
+    terrain_levels = CurrTerm(func=mdp.terrain_levels_pose)
 
 
 @configclass
-class NavigationRoughEnvCfg(ManagerBasedRLEnvCfg):
+class G1NavigationRoughEnvCfg(ManagerBasedRLEnvCfg):
     """Configuration for the navigation environment."""
 
     # environment settings
-    scene: SceneEntityCfg = LOW_LEVEL_ENV_CFG.scene
+    scene: SceneEntityCfg = MySceneCfg(num_envs=2048, env_spacing=2.5)
     actions: ActionsCfg = ActionsCfg()
     observations: ObservationsCfg = ObservationsCfg()
     events: EventCfg = EventCfg()
@@ -243,29 +316,25 @@ class NavigationRoughEnvCfg(ManagerBasedRLEnvCfg):
     def __post_init__(self):
         """Post initialization."""
 
-        self.sim.dt = LOW_LEVEL_ENV_CFG.sim.dt
-        self.sim.render_interval = LOW_LEVEL_ENV_CFG.decimation
-        self.decimation = LOW_LEVEL_ENV_CFG.decimation
+        # Scene
+        self.scene.robot = G1_MINIMAL_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
+
+        self.sim.dt = 0.005
+        self.sim.render_interval = 4
+        self.decimation = 4
         self.episode_length_s = self.commands.pose_command.resampling_time_range[1]
 
         if self.scene.height_scanner is not None:
             self.scene.height_scanner.update_period = (
-                LOW_LEVEL_ENV_CFG.decimation * self.sim.dt
+                4 * self.sim.dt
             )
         if self.scene.contact_forces is not None:
             self.scene.contact_forces.update_period = self.sim.dt
 
-        # check if terrain levels curriculum is enabled - if so, enable curriculum for terrain generator
-        # this generates terrains with increasing difficulty and is useful for training
-        if getattr(self.curriculum, "terrain_levels", None) is not None:
-            if self.scene.door.terrain_generator is not None:
-                self.scene.door.terrain_generator.curriculum = True
-        else:
-            if self.scene.door.terrain_generator is not None:
-                self.scene.door.terrain_generator.curriculum = False
+        self.scene.terrain.terrain_generator.curriculum = True
 
 
-class NavigationRoughEnvCfg_PLAY(NavigationRoughEnvCfg):
+class G1NavigationRoughEnvCfg_PLAY(G1NavigationRoughEnvCfg):
     def __post_init__(self) -> None:
         # post init of parent
         super().__post_init__()

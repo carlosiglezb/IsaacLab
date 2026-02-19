@@ -21,10 +21,10 @@ from isaaclab.utils.noise import AdditiveUniformNoiseCfg as Unoise
 
 import isaaclab_tasks.manager_based.navigation.mdp as mdp
 from isaaclab_tasks.manager_based.locomotion.velocity.mdp import feet_slide
-from isaaclab_tasks.manager_based.locomotion.velocity.config.g1.flat_knee_knocker_env_cfg import G1FlatKneeKnockerEnvCfg
+from isaaclab_tasks.manager_based.locomotion.velocity.config.g1.rough_env_cfg import G1RoughEnvCfg
 
 cwd = os.getcwd()
-LOW_LEVEL_ENV_CFG = G1FlatKneeKnockerEnvCfg()
+LOW_LEVEL_ENV_CFG = G1RoughEnvCfg()
 
 
 @configclass
