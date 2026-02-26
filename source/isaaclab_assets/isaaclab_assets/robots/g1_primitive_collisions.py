@@ -1,11 +1,10 @@
 import os
-
+import numpy as np
 import isaaclab.sim as sim_utils
 from isaaclab.actuators import ImplicitActuatorCfg
 from isaaclab.assets.articulation import ArticulationCfg
 
 cwd = os.getcwd()
-
 
 G1_PRIMITIVE_COLLISIONS = ArticulationCfg(
     spawn=sim_utils.UrdfFileCfg(asset_path=f"{cwd}/source/isaaclab_assets/isaaclab_assets/robots/g1/g1_simple_collisions.urdf",
@@ -13,7 +12,8 @@ G1_PRIMITIVE_COLLISIONS = ArticulationCfg(
                                 # collision_from_visuals=True,
                                 # collider_type='convex_decomposition',
                                 activate_contact_sensors=True,
-                                # self_collision=True,
+                                self_collision=True,
+                                merge_fixed_joints=False,
                                 joint_drive=sim_utils.UrdfConverterCfg.JointDriveCfg(
                                     gains=sim_utils.UrdfConverterCfg.JointDriveCfg.PDGainsCfg(stiffness=None,
                                                                                               damping=None)
@@ -35,18 +35,10 @@ G1_PRIMITIVE_COLLISIONS = ArticulationCfg(
     init_state=ArticulationCfg.InitialStateCfg(
         pos=(0.0, 0.0, 0.74),
         joint_pos={
-            ".*_hip_pitch_joint": -0.20,
-            ".*_knee_joint": 0.42,
-            ".*_ankle_pitch_joint": -0.23,
-            ".*_elbow_pitch_joint": 0.87,
-            "left_shoulder_roll_joint": 0.16,
-            "left_shoulder_pitch_joint": 0.35,
-            "right_shoulder_roll_joint": -0.16,
-            "right_shoulder_pitch_joint": 0.35,
-            "left_one_joint": 1.0,
-            "right_one_joint": -1.0,
-            "left_two_joint": 0.52,
-            "right_two_joint": -0.52,
+            ".*_hip_pitch_joint": -np.pi / 6,
+            ".*_knee_joint": np.pi / 3,
+            ".*_ankle_pitch_joint": -np.pi / 6,
+            ".*_elbow_joint": 0.87,
         },
         joint_vel={".*": 0.0},
     ),
@@ -58,7 +50,9 @@ G1_PRIMITIVE_COLLISIONS = ArticulationCfg(
                 ".*_hip_roll_joint",
                 ".*_hip_pitch_joint",
                 ".*_knee_joint",
-                "torso_joint",
+                "waist_yaw_joint",
+                "waist_roll_joint",
+                "waist_pitch_joint",
             ],
             effort_limit=300,
             velocity_limit=100.0,
@@ -67,19 +61,25 @@ G1_PRIMITIVE_COLLISIONS = ArticulationCfg(
                 ".*_hip_roll_joint": 150.0,
                 ".*_hip_pitch_joint": 200.0,
                 ".*_knee_joint": 200.0,
-                "torso_joint": 200.0,
+                "waist_yaw_joint": 200.0,
+                "waist_roll_joint": 200.0,
+                "waist_pitch_joint": 200.0,
             },
             damping={
                 ".*_hip_yaw_joint": 5.0,
                 ".*_hip_roll_joint": 5.0,
                 ".*_hip_pitch_joint": 5.0,
                 ".*_knee_joint": 5.0,
-                "torso_joint": 5.0,
+                "waist_yaw_joint": 5.0,
+                "waist_roll_joint": 5.0,
+                "waist_pitch_joint": 5.0,
             },
             armature={
                 ".*_hip_.*": 0.01,
                 ".*_knee_joint": 0.01,
-                "torso_joint": 0.01,
+                "waist_yaw_joint": 0.01,
+                "waist_roll_joint": 0.01,
+                "waist_pitch_joint": 0.01,
             },
         ),
         "feet": ImplicitActuatorCfg(
@@ -94,15 +94,10 @@ G1_PRIMITIVE_COLLISIONS = ArticulationCfg(
                 ".*_shoulder_pitch_joint",
                 ".*_shoulder_roll_joint",
                 ".*_shoulder_yaw_joint",
-                ".*_elbow_pitch_joint",
-                ".*_elbow_roll_joint",
-                ".*_five_joint",
-                ".*_three_joint",
-                ".*_six_joint",
-                ".*_four_joint",
-                ".*_zero_joint",
-                ".*_one_joint",
-                ".*_two_joint",
+                ".*_elbow_joint",
+                ".*_wrist_roll_joint",
+                ".*_wrist_pitch_joint",
+                ".*_wrist_yaw_joint",
             ],
             effort_limit=300,
             velocity_limit=100.0,
@@ -111,13 +106,7 @@ G1_PRIMITIVE_COLLISIONS = ArticulationCfg(
             armature={
                 ".*_shoulder_.*": 0.01,
                 ".*_elbow_.*": 0.01,
-                ".*_five_joint": 0.001,
-                ".*_three_joint": 0.001,
-                ".*_six_joint": 0.001,
-                ".*_four_joint": 0.001,
-                ".*_zero_joint": 0.001,
-                ".*_one_joint": 0.001,
-                ".*_two_joint": 0.001,
+                ".*_wrist_.*": 0.01,
             },
         ),
     },
