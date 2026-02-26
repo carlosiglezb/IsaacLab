@@ -18,7 +18,6 @@ from isaaclab_tasks.manager_based.locomotion.velocity.velocity_env_cfg import Ev
 
 # from isaaclab_tasks.manager_based.locomotion.velocity.config.digit.rough_env_cfg import DigitRewards, DigitRoughEnvCfg
 from isaaclab_tasks.manager_based.locomotion.velocity.config.g1.rough_env_cfg import G1Rewards, G1RoughEnvCfg
-from isaaclab_assets import apply_srdf_filters, G1_SRDF_DISABLED_PAIRS
 
 from isaaclab.managers import TerminationTermCfg
 

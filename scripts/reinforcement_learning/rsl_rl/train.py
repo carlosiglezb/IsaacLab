@@ -118,7 +118,7 @@ def log_videos_from_folder(folder_path):
         if filename.lower().endswith(('.mp4', '.avi', '.mov', '.webm')):  # Add more video extensions if needed
             video_path = os.path.join(folder_path, filename)
             try:
-                wandb.log({f"video_{filename}": wandb.Video(video_path)})
+                wandb.log({f"{filename}": wandb.Video(video_path, format="mp4")})
                 print(f"Logged: {filename}")
             except Exception as e:
                 print(f"Error logging {filename}: {e}")
