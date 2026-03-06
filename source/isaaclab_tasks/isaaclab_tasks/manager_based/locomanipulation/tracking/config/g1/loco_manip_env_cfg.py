@@ -20,6 +20,7 @@ from isaaclab_tasks.manager_based.locomotion.velocity.velocity_env_cfg import Ev
 from isaaclab_tasks.manager_based.locomotion.velocity.config.g1.rough_env_cfg import G1Rewards, G1RoughEnvCfg
 
 from isaaclab.managers import TerminationTermCfg
+from isaaclab.terrains.config.mildly_rough import MILDLY_ROUGH_TERRAINS_CFG  # isort: skip
 
 ARM_JOINT_NAMES = [
     ".*_shoulder_pitch_joint",
@@ -187,31 +188,31 @@ class G1LocoManipCommands:
 
     left_ee_pose = mdp.UniformPoseCommandCfg(
         asset_name="robot",
-        body_name="left_wrist_yaw_link",
+        body_name="left_rubber_hand",
         resampling_time_range=(1.0, 3.0),
         debug_vis=True,
         ranges=mdp.UniformPoseCommandCfg.Ranges(
-            pos_x=(0.10, 0.30),
-            pos_y=(0.05, 0.30),
+            pos_x=(0.10, 0.35),
+            pos_y=(0.05, 0.35),
             pos_z=(-0.20, 0.20),
-            roll=(-0.1, 0.1),
-            pitch=(-0.1, 0.1),
-            yaw=(math.pi / 2.0 - 0.1, math.pi / 2.0 + 0.1),
+            roll=(-0.5, 0.5),
+            pitch=(-0.5, 0.5),
+            yaw=(-math.pi / 2.0 - 0.1, 0.5),
         ),
     )
 
     right_ee_pose = mdp.UniformPoseCommandCfg(
         asset_name="robot",
-        body_name="right_wrist_yaw_link",
+        body_name="right_rubber_hand",
         resampling_time_range=(1.0, 3.0),
         debug_vis=True,
         ranges=mdp.UniformPoseCommandCfg.Ranges(
-            pos_x=(0.10, 0.30),
-            pos_y=(-0.30, -0.05),
+            pos_x=(0.10, 0.35),
+            pos_y=(-0.35, -0.05),
             pos_z=(-0.20, 0.20),
             roll=(-0.1, 0.1),
             pitch=(-0.1, 0.1),
-            yaw=(-math.pi / 2.0 - 0.1, -math.pi / 2.0 + 0.1),
+            yaw=(-0.5, math.pi / 2.0 + 0.1),
         ),
     )
 
@@ -262,17 +263,18 @@ class G1LocoManipEnvCfg(G1RoughEnvCfg):
         #     params={"limit_angle": 0.7},
         # )
 
-        self.episode_length_s = 7.0
+        self.episode_length_s = 14.0
 
         # Rewards:
         self.rewards.flat_orientation_l2.weight = -10.5
         self.rewards.termination_penalty.weight = -100.0
         self.rewards.joint_deviation_fingers = None
         self.rewards.joint_deviation_torso = None
+        self.rewards.lin_vel_z_l2 = None
 
-        # Change terrain to flat.
-        self.scene.terrain.terrain_type = "plane"
-        self.scene.terrain.terrain_generator = None
+        # Customize terrain
+        self.scene.terrain.terrain_type = "plane"   # generator
+        self.scene.terrain.terrain_generator = None #MILDLY_ROUGH_TERRAINS_CFG
         # Remove height scanner.
         self.scene.height_scanner = None
         self.observations.policy.height_scan = None
@@ -294,3 +296,9 @@ class G1LocoManipEnvCfg_PLAY(G1LocoManipEnvCfg):
         # Remove random pushing.
         self.events.base_external_force_torque = None
         self.events.push_robot = None
+        # Planar terrain
+        self.scene.terrain.terrain_type = "plane"
+        self.scene.terrain.terrain_generator = None
+        # Remove terrain curriculum.
+        self.curriculum.terrain_levels = None
+

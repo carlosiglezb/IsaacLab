@@ -11,7 +11,7 @@ from isaaclab_rl.rsl_rl import RslRlOnPolicyRunnerCfg, RslRlPpoActorCriticCfg, R
 @configclass
 class G1LocoManipPPORunnerCfg(RslRlOnPolicyRunnerCfg):
     num_steps_per_env = 24
-    max_iterations = 6000
+    max_iterations = 2000
     save_interval = 500
     experiment_name = "g1_loco_manip"
     policy = RslRlPpoActorCriticCfg(
