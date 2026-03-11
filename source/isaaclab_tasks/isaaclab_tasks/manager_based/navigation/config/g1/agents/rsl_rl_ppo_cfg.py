@@ -44,7 +44,7 @@ class NavigationEnvPPORunnerCfg(RslRlOnPolicyRunnerCfg):
 @configclass
 class G1NavigationEnvPPORunnerCfg(RslRlOnPolicyRunnerCfg):
     num_steps_per_env = 24
-    max_iterations = 5000
+    max_iterations = 8000
     save_interval = 500
     experiment_name = "g1_rough"
     empirical_normalization = False

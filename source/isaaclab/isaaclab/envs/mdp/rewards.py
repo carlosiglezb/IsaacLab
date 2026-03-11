@@ -21,6 +21,11 @@ from isaaclab.managers.manager_base import ManagerTermBase
 from isaaclab.managers.manager_term_cfg import RewardTermCfg
 from isaaclab.sensors import ContactSensor, RayCaster
 
+from isaaclab.utils.math import matrix_from_quat
+from isaaclab.utils.math import quat_apply
+
+from isaaclab.utils.geom_utils import segment_to_segment_dist
+
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedRLEnv
 
@@ -342,3 +347,78 @@ def track_ang_vel_z_exp(
     # compute the error
     ang_vel_error = torch.square(env.command_manager.get_command(command_name)[:, 2] - asset.data.root_ang_vel_b[:, 2])
     return torch.exp(-ang_vel_error / std**2)
+
+"""
+Custom Rewards
+"""
+def feet_flat_orientation(env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg) -> torch.Tensor:
+    """Penalize the humanoid if the feet are not parallel to the ground."""
+    # extract the used quantities (to enable type-hinting)
+    asset: RigidObject = env.scene[asset_cfg.name]
+
+    foot_quats = asset.data.body_quat_w[:, asset_cfg.body_ids]      # (num_envs, num_bodies, 4)
+    foot_heights = asset.data.body_pos_w[:, asset_cfg.body_ids, 2]  # (num_envs, num_bodies, 3)
+
+    # convert to rotation matrices and get the local Z-axis (up vector)
+    foot_matrices = matrix_from_quat(foot_quats)    # (num_envs, num_feet, 3, 3)
+    foot_up_vec = foot_matrices[:, :, :, 2]         # (num_envs, num_feet, 3)
+    uprightness = foot_up_vec[:, :, 2]              # get z-element
+
+    # uprightness of 1.0 means perfectly upright, < 1.0 means tilted
+    tilt_penalty = 1.0 - torch.square(uprightness)
+
+    # apply a ground height threshold (can use contact force, instead)
+    on_ground = foot_heights < 0.08
+
+    # sum across the feet (dim 1)
+    return torch.sum(tilt_penalty * on_ground, dim=1)
+
+
+def primitive_distance_penalty(
+        env: ManagerBasedRLEnv,
+        pair_1_cfg: SceneEntityCfg,
+        pair_2_cfg: SceneEntityCfg,
+        radius_1: float,
+        radius_2: float,
+        offset_1 = None,
+        offset_2 = None,
+        length_1: float = 0.0,
+        length_2: float = 0.0,
+        threshold: float = 0.05,
+) -> torch.Tensor:
+    asset = env.scene[pair_1_cfg.name]
+
+    # get in tensor format
+    offset_1 = torch.tensor(offset_1, device=env.device).view(1, 3).repeat(env.num_envs, 1)
+    offset_2 = torch.tensor(offset_2, device=env.device).view(1, 3).repeat(env.num_envs, 1)
+
+    # get current positions and orientations
+    pos1 = asset.data.body_pos_w[:, pair_1_cfg.body_ids[0]]
+    quat1 = asset.data.body_quat_w[:, pair_1_cfg.body_ids[0]]
+    pos2 = asset.data.body_pos_w[:, pair_2_cfg.body_ids[0]]
+    quat2 = asset.data.body_quat_w[:, pair_2_cfg.body_ids[0]]
+
+    # offset
+    true_center1 = pos1 + quat_apply(quat1, offset_1)
+    true_center2 = pos2 + quat_apply(quat2, offset_2)
+
+    # define segment endpoints in local frame (aligned with local Z-axis)
+    z_axis = torch.tensor([0.0, 0.0, 1.0], device=env.device).repeat(env.num_envs, 1)
+
+    # compute A and B for first primitive
+    axis_offset1 = quat_apply(quat1, z_axis * (length_1 / 2.0))
+    p1_A, p1_B = true_center1 + axis_offset1, true_center1 - axis_offset1
+
+    # compute C and D for second primitive
+    axis_offset2 = quat_apply(quat2, z_axis * (length_2 / 2.0))
+    p2_C, p2_D = true_center2 + axis_offset2, true_center2 - axis_offset2
+
+    # calculate distance between segments
+    dist = segment_to_segment_dist(p1_A, p1_B, p2_C, p2_D)
+
+    # subtract radii to get surface-to-surface distance
+    surface_dist = dist - (radius_1 + radius_2)
+
+    # penalize violation of the safety threshold
+    penalty = torch.square(torch.clamp(threshold - surface_dist, min=0.0))
+    return penalty
