@@ -15,7 +15,10 @@ from isaaclab_tasks.manager_based.locomotion.velocity.velocity_env_cfg import Lo
 ##
 # Pre-defined configs
 ##
+from isaaclab_assets import G1_29DOF_CFG  # isort: skip
+from isaaclab_assets import G1_CFG  # isort: skip
 from isaaclab_assets import G1_PRIMITIVE_COLLISIONS  # isort: skip
+from isaaclab_assets import G1_MINIMAL_CFG  # isort: skip
 
 
 @configclass
@@ -71,7 +74,7 @@ class G1Rewards(RewardsCfg):
                     ".*_shoulder_pitch_joint",
                     ".*_shoulder_roll_joint",
                     ".*_shoulder_yaw_joint",
-                    ".*_elbow_joint",
+                    ".*_elbow_.*",
                 ],
             )
         },
@@ -96,7 +99,7 @@ class G1Rewards(RewardsCfg):
     )
     joint_deviation_torso = RewTerm(
         func=mdp.joint_deviation_l1,
-        weight=-0.1,
+        weight=-0.4,
         params={"asset_cfg": SceneEntityCfg("robot", joint_names="torso_joint")},
     )
 
@@ -110,12 +113,13 @@ class G1RoughEnvCfg(LocomotionVelocityRoughEnvCfg):
         super().__post_init__()
         # Scene
         self.scene.robot = G1_PRIMITIVE_COLLISIONS.replace(prim_path="{ENV_REGEX_NS}/Robot")
+        # self.scene.robot.spawn.articulation_props.fix_root_link = False
         self.scene.height_scanner.prim_path = "{ENV_REGEX_NS}/Robot/torso_link"
 
         # Randomization
-        self.events.push_robot = None
-        self.events.add_base_mass = None
-        self.events.reset_robot_joints.params["position_range"] = (1.0, 1.0)
+        # self.events.push_robot = None
+        # self.events.add_base_mass = None
+        # self.events.reset_robot_joints.params["position_range"] = (1.0, 1.0)
         self.events.base_external_force_torque.params["asset_cfg"].body_names = ["torso_link"]
         self.events.reset_base.params = {
             "pose_range": {"x": (-0.5, 0.5), "y": (-0.5, 0.5), "yaw": (-3.14, 3.14)},

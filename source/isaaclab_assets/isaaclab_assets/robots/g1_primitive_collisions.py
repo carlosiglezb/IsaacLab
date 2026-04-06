@@ -102,7 +102,7 @@ G1_PRIMITIVE_COLLISIONS = ArticulationCfg(
             effort_limit=300,
             velocity_limit=100.0,
             stiffness=40.0,
-            damping=10.0,
+            damping=2.0,
             armature={
                 ".*_shoulder_.*": 0.01,
                 ".*_elbow_.*": 0.01,

@@ -270,9 +270,9 @@ class CommandsCfg:
     pose_command = mdp.UniformPose2dCommandCfg(
         asset_name="robot",
         simple_heading=False,
-        resampling_time_range=(8.0, 8.0),
+        resampling_time_range=(5.0, 5.0),
         debug_vis=True,
-        ranges=mdp.UniformPose2dCommandCfg.Ranges(pos_x=(0.75, 1.5), pos_y=(-0.5, 0.5), heading=(-1.0, 1.0)),
+        ranges=mdp.UniformPose2dCommandCfg.Ranges(pos_x=(-1.5, 1.5), pos_y=(-1.5, 1.5), heading=(-3.14, 3.14)),
     )
 
 

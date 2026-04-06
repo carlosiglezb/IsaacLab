@@ -24,6 +24,7 @@ from isaaclab.managers import TerminationTermCfg
 from isaaclab.terrains.config.mildly_rough import MILDLY_ROUGH_TERRAINS_CFG  # isort: skip
 
 from isaaclab.envs.mdp.rewards import primitive_distance_penalty
+from isaaclab.utils.geom_utils import fetch_primitive_dimensions
 
 ARM_JOINT_NAMES = [
     ".*_shoulder_pitch_joint",
@@ -61,7 +62,7 @@ class G1LocoManipRewards(G1Rewards):
         func=manipulation_mdp.position_command_error,
         weight=-2.0,
         params={
-            "asset_cfg": SceneEntityCfg("robot", body_names="left_wrist_yaw_link"),
+            "asset_cfg": SceneEntityCfg("robot", body_names="left_rubber_hand"),
             "command_name": "left_ee_pose",
         },
     )
@@ -70,7 +71,7 @@ class G1LocoManipRewards(G1Rewards):
         func=manipulation_mdp.position_command_error_tanh,
         weight=2.0,
         params={
-            "asset_cfg": SceneEntityCfg("robot", body_names="left_wrist_yaw_link"),
+            "asset_cfg": SceneEntityCfg("robot", body_names="left_rubber_hand"),
             "std": 0.05,
             "command_name": "left_ee_pose",
         },
@@ -80,7 +81,7 @@ class G1LocoManipRewards(G1Rewards):
         func=manipulation_mdp.orientation_command_error,
         weight=-0.2,
         params={
-            "asset_cfg": SceneEntityCfg("robot", body_names="left_wrist_yaw_link"),
+            "asset_cfg": SceneEntityCfg("robot", body_names="left_rubber_hand"),
             "command_name": "left_ee_pose",
         },
     )
@@ -89,7 +90,7 @@ class G1LocoManipRewards(G1Rewards):
         func=manipulation_mdp.position_command_error,
         weight=-2.0,
         params={
-            "asset_cfg": SceneEntityCfg("robot", body_names="right_wrist_yaw_link"),
+            "asset_cfg": SceneEntityCfg("robot", body_names="right_rubber_hand"),
             "command_name": "right_ee_pose",
         },
     )
@@ -98,7 +99,7 @@ class G1LocoManipRewards(G1Rewards):
         func=manipulation_mdp.position_command_error_tanh,
         weight=2.0,
         params={
-            "asset_cfg": SceneEntityCfg("robot", body_names="right_wrist_yaw_link"),
+            "asset_cfg": SceneEntityCfg("robot", body_names="right_rubber_hand"),
             "std": 0.05,
             "command_name": "right_ee_pose",
         },
@@ -108,7 +109,7 @@ class G1LocoManipRewards(G1Rewards):
         func=manipulation_mdp.orientation_command_error,
         weight=-0.2,
         params={
-            "asset_cfg": SceneEntityCfg("robot", body_names="right_wrist_yaw_link"),
+            "asset_cfg": SceneEntityCfg("robot", body_names="right_rubber_hand"),
             "command_name": "right_ee_pose",
         },
     )
@@ -205,7 +206,7 @@ class G1LocoManipCommands:
         resampling_time_range=(1.0, 3.0),
         debug_vis=True,
         ranges=mdp.UniformPoseCommandCfg.Ranges(
-            pos_x=(0.15, 0.35),
+            pos_x=(0.1, 0.3),
             pos_y=(0.05, 0.35),
             pos_z=(-0.10, 0.40),
             roll=(-0.5, 0.5),
@@ -220,7 +221,7 @@ class G1LocoManipCommands:
         resampling_time_range=(1.0, 3.0),
         debug_vis=True,
         ranges=mdp.UniformPoseCommandCfg.Ranges(
-            pos_x=(0.15, 0.35),
+            pos_x=(0.1, 0.3),
             pos_y=(-0.35, -0.05),
             pos_z=(-0.10, 0.40),
             roll=(-0.5, 0.5),
@@ -238,7 +239,7 @@ class G1Events(EventCfg):
         mode="interval",
         interval_range_s=(8.0, 12.0),
         params={
-            "asset_cfg": SceneEntityCfg("robot", body_names="left_wrist_yaw_link"),
+            "asset_cfg": SceneEntityCfg("robot", body_names="left_rubber_hand"),
             "force_range": (-5.0, 5.0),
             "torque_range": (-1.0, 1.0),
         },
@@ -249,7 +250,7 @@ class G1Events(EventCfg):
         mode="interval",
         interval_range_s=(8.0, 12.0),
         params={
-            "asset_cfg": SceneEntityCfg("robot", body_names="right_wrist_yaw_link"),
+            "asset_cfg": SceneEntityCfg("robot", body_names="right_rubber_hand"),
             "force_range": (-5.0, 5.0),
             "torque_range": (-1.0, 1.0),
         },
@@ -265,49 +266,70 @@ class G1LocoManipEnvCfg(G1RoughEnvCfg):
     def __post_init__(self):
         super().__post_init__()
 
+        # # 1. Parse dimensions once
+        # robot_dims = fetch_primitive_dimensions(self.scene.robot)
+        #
+        # # 2. Convert to tensors for fast reward calculation
+        # r_torso, l_torso = robot_dims["torso_link"]
+        # r_lhip, l_lhip = robot_dims["left_hip_roll_link"]
+        # r_rhip, l_rhip = robot_dims["right_hip_roll_link"]
+        # r_lshoulder, l_lshoulder = robot_dims["left_shoulder_yaw_link"]
+        # r_rshoulder, l_rshoulder = robot_dims["right_shoulder_yaw_link"]
+        # r_lelbow, l_lelbow = robot_dims["left_elbow_link"]
+        # r_relbow, l_relbow = robot_dims["right_elbow_link"]
+        #
+        # collision_params = {
+        #     "radius_torso": r_torso, "length_torso": l_torso,
+        #     "radius_lhip": r_lhip, "length_lhip": l_lhip,
+        #     "radius_rhip": r_rhip, "length_rhip": l_rhip,
+        #     "radius_lshoulder": r_lshoulder, "length_lshoulder": l_lshoulder,
+        #     "radius_rshoulder": r_rshoulder, "length_rshoulder": l_rshoulder,
+        #     "radius_lelbow": r_lelbow, "length_lelbow": l_lelbow,
+        #     "radius_relbow": r_relbow, "length_relbow": l_relbow,
+        # }
 
-        self.rewards.torso_larm_self_collision = RewTerm(
-            func=primitive_distance_penalty,
-            weight=-0.1,
-            params={
-                "pair_1_cfg": SceneEntityCfg("robot", body_names="torso_link"),
-                "pair_2_cfg": SceneEntityCfg("robot", body_names="left_shoulder_yaw_link"),
-                "radius_1": 0.11,
-                "radius_2": 0.03,
-                "offset_1": [0, 0, 0.13],
-                "offset_2": [0, 0, 0.02],
-                "length_1": 0.33,
-                "length_2": 0.1,
-            },
-        )
-
-        self.rewards.torso_rarm_self_collision = RewTerm(
-            func=primitive_distance_penalty,
-            weight=-0.1,
-            params={
-                "pair_1_cfg": SceneEntityCfg("robot", body_names="torso_link"),
-                "pair_2_cfg": SceneEntityCfg("robot", body_names="right_shoulder_yaw_link"),
-                "radius_1": 0.11,
-                "radius_2": 0.03,
-                "offset_1": [0, 0, 0.13],
-                "offset_2": [0, 0, 0.02],
-                "length_1": 0.33,
-                "length_2": 0.1,
-            },
-        )
+        # self.rewards.torso_larm_self_collision = RewTerm(
+        #     func=primitive_distance_penalty,
+        #     weight=-0.1,
+        #     params={
+        #         "pair_1_cfg": SceneEntityCfg("robot", body_names="torso_link"),
+        #         "pair_2_cfg": SceneEntityCfg("robot", body_names="left_shoulder_yaw_link"),
+        #         "radius_1": 0.11,
+        #         "radius_2": 0.03,
+        #         "offset_1": [0, 0, 0.13],
+        #         "offset_2": [0, 0, 0.02],
+        #         "length_1": 0.33,
+        #         "length_2": 0.1,
+        #     },
+        # )
+        #
+        # self.rewards.torso_rarm_self_collision = RewTerm(
+        #     func=primitive_distance_penalty,
+        #     weight=-0.1,
+        #     params={
+        #         "pair_1_cfg": SceneEntityCfg("robot", body_names="torso_link"),
+        #         "pair_2_cfg": SceneEntityCfg("robot", body_names="right_shoulder_yaw_link"),
+        #         "radius_1": 0.11,
+        #         "radius_2": 0.03,
+        #         "offset_1": [0, 0, 0.13],
+        #         "offset_2": [0, 0, 0.02],
+        #         "length_1": 0.33,
+        #         "length_2": 0.1,
+        #     },
+        # )
 
         self.scene.contact_forces.history_length = self.decimation
         self.scene.contact_forces.update_period = self.sim.dt
 
         # Custom terminations
-        self.terminations.torso_height.minimum_height = 0.2
+        self.terminations.torso_height.params['minimum_height'] = 0.2
         self.terminations.base_contact = None
         # self.terminations.base_orientation = TerminationTermCfg(
         #     func=mdp.bad_orientation,
         #     params={"limit_angle": 0.7},
         # )
 
-        self.episode_length_s = 14.0
+        self.episode_length_s = 15.0
 
         # Rewards:
         self.rewards.track_lin_vel_xy_exp.weight = 2.0
@@ -315,12 +337,15 @@ class G1LocoManipEnvCfg(G1RoughEnvCfg):
         self.rewards.termination_penalty.weight = -100.0
         self.rewards.joint_deviation_fingers = None
         # self.rewards.joint_deviation_torso = None
-        self.rewards.joint_deviation_torso.params['asset_cfg'].joint_names = 'waist_pitch_joint'
+        self.rewards.joint_deviation_torso.params['asset_cfg'].joint_names = ['waist_.*']
         self.rewards.lin_vel_z_l2 = None
 
+        # Events
+        self.events.add_base_mass.params['asset_cfg'].body_names = "torso_link"
+
         # Customize terrain
-        self.scene.terrain.terrain_type = "plane"   # generator
-        self.scene.terrain.terrain_generator = None #MILDLY_ROUGH_TERRAINS_CFG
+        self.scene.terrain.terrain_type = "plane"   # "generator"
+        self.scene.terrain.terrain_generator = None  #MILDLY_ROUGH_TERRAINS_CFG
         # Remove height scanner.
         self.scene.height_scanner = None
         self.observations.policy.height_scan = None
@@ -338,10 +363,12 @@ class G1LocoManipEnvCfg(G1RoughEnvCfg):
             mode="startup",
             params={
                 "asset_cfg": SceneEntityCfg("robot", body_names="torso_link"),
-                "com_range": {"x": (-0.05, 0.05), "y": (-0.05, 0.05), "z": (-0.01, 0.01)},
+                "com_range": {"x": (-0.05, 0.05), "y": (-0.05, 0.05), "z": (-0.03, 0.03)},
             },
         )
         self.events.reset_robot_joints.params["position_range"] = (0.5, 1.5)
+        self.events.base_external_force_torque.params["force_range"] = (-5.0, 5.0)
+        self.events.base_external_force_torque.params["torque_range"] = (-5.0, 5.0)
 
 
 class G1LocoManipEnvCfg_PLAY(G1LocoManipEnvCfg):

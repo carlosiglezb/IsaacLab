@@ -368,7 +368,7 @@ def feet_flat_orientation(env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg) -> 
     tilt_penalty = 1.0 - torch.square(uprightness)
 
     # apply a ground height threshold (can use contact force, instead)
-    on_ground = foot_heights < 0.08
+    on_ground = foot_heights < 0.2
 
     # sum across the feet (dim 1)
     return torch.sum(tilt_penalty * on_ground, dim=1)
