@@ -340,6 +340,10 @@ class G1LocoManipEnvCfg(G1RoughEnvCfg):
         self.rewards.joint_deviation_torso.params['asset_cfg'].joint_names = ['waist_.*']
         self.rewards.lin_vel_z_l2 = None
 
+        # Commands:
+        self.commands.base_velocity.ranges.lin_vel_x = (-1.0, 1.0)
+        self.commands.base_velocity.ranges.lin_vel_y = (-1.0, 1.0)
+
         # Events
         self.events.add_base_mass.params['asset_cfg'].body_names = "torso_link"
 
