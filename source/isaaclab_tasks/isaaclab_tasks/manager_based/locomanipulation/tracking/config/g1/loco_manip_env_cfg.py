@@ -131,6 +131,15 @@ class G1LocoManipRewards(G1Rewards):
         }
     )
 
+    self_collision_penalty = RewTerm(
+        func=mdp.self_collision_curriculum,  # Use your custom wrapper
+        weight=-0.1,  # Set the final TARGET weight
+        params={
+            "sensor_cfg": SceneEntityCfg("contact_forces", body_names=[".*_shoulder_yaw.*"]),
+            "threshold": 10.0,
+            "max_steps": 2000.0,  # Adjust this based on how fast you want the curriculum to ramp
+        },
+    )
 
 
 
@@ -348,13 +357,13 @@ class G1LocoManipEnvCfg(G1RoughEnvCfg):
         self.events.add_base_mass.params['asset_cfg'].body_names = "torso_link"
 
         # Customize terrain
-        self.scene.terrain.terrain_type = "plane"   # "generator"
-        self.scene.terrain.terrain_generator = None  #MILDLY_ROUGH_TERRAINS_CFG
+        self.scene.terrain.terrain_type = "generator"   # "plane"
+        self.scene.terrain.terrain_generator = MILDLY_ROUGH_TERRAINS_CFG  # None
         # Remove height scanner.
         self.scene.height_scanner = None
         self.observations.policy.height_scan = None
         # Remove terrain curriculum.
-        self.curriculum.terrain_levels = None
+        # self.curriculum.terrain_levels = None
         # Add back pushing robot
         self.events.push_robot = EventTermCfg(
             func=mdp.push_by_setting_velocity,
@@ -388,8 +397,8 @@ class G1LocoManipEnvCfg_PLAY(G1LocoManipEnvCfg):
         self.events.base_external_force_torque = None
         self.events.push_robot = None
         # Planar terrain
-        self.scene.terrain.terrain_type = "plane"
-        self.scene.terrain.terrain_generator = None
+        # self.scene.terrain.terrain_type = "plane"
+        # self.scene.terrain.terrain_generator = None
         # Remove terrain curriculum.
-        self.curriculum.terrain_levels = None
+        # self.curriculum.terrain_levels = None
 

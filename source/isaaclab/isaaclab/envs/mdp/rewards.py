@@ -319,6 +319,26 @@ def contact_forces(env: ManagerBasedRLEnv, threshold: float, sensor_cfg: SceneEn
     return torch.sum(violation.clip(min=0.0), dim=1)
 
 
+def self_collision_curriculum(
+        env: "ManagerBasedRLEnv",
+        sensor_cfg: SceneEntityCfg,
+        threshold: float,
+        max_steps: float = 5000.0,  # Number of steps before scale increase by factor of 10
+        num_steps_per_env = 24
+) -> torch.Tensor:
+    """Linearly ramps up the collision penalty over training steps."""
+
+    # Get the base reward from the native contact_forces function
+    base_reward = contact_forces(env, threshold, sensor_cfg)
+
+    # Calculate the scaling factor in increments (0.01, 0.1, 1, 10)
+    current_iteration = env.common_step_counter // num_steps_per_env
+    exp_factor = current_iteration // max_steps
+    scale = 0.01 * 10**exp_factor
+    scale = min(scale, 10)
+
+    return base_reward * scale
+
 """
 Velocity-tracking rewards.
 """
