@@ -17,14 +17,24 @@ _REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../.
 if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
 
+from ruamel.yaml import YAML
+
 from extensions.traversable_regions import TraversableRegions
 from extensions.kin_feasibility.multiframe_fpp.mfpp_polygonal import solve_min_reach_iris_distance
 
-B_VISUALIZE = False   # flip to True for interactive 3D plots
+B_VISUALIZE = True   # flip to True for interactive 3D plots
+
+# Paths to per-frame reachability halfspace yaml files and aux-frame descriptor.
+# The test file lives 3 levels below the repo root (test/ → kin_feasibility/ → extensions/ → IsaacLab/).
+_ISAACLAB_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../.."))
+_REACH_DIR = os.path.join(_ISAACLAB_ROOT, 'extensions', 'kin_feasibility', 'reachability')
+_REACH_BASE = os.path.join(_REACH_DIR, 'g1_')          # + '<frame>.yaml'
+_AUX_FRAMES_PATH = os.path.join(_REACH_DIR, 'g1_aux_frames.yaml')
 
 # ---------------------------------------------------------------------------
 # Shared fixtures
 # ---------------------------------------------------------------------------
+ROOT_TO_TORSO_OFFSET = [-0.0039635, 0.0, 0.164]
 
 # Correct 6×3 halfspace matrix: [I3; -I3] encodes  x_min ≤ x ≤ x_max
 A_MAT = np.vstack([np.eye(3), -np.eye(3)])
@@ -96,8 +106,29 @@ SAFE_PNT_LST = [
 ]
 
 
-def _make_traversable_regions():
-    return TraversableRegions(IRIS_LST, IRIS_SEQ, SAFE_PNT_LST)
+def _make_traversable_regions(reach_paths: dict):
+    return TraversableRegions(IRIS_LST, IRIS_SEQ, SAFE_PNT_LST, reach_paths, root_to_torso_pos=ROOT_TO_TORSO_OFFSET)
+
+
+def _load_reach_paths(frame_names):
+    """Load G1 convex-hull reachability halfspaces from yaml files."""
+    reach_paths = {}
+    for frame_name in frame_names:
+        if frame_name == 'torso':
+            continue
+        path = _REACH_BASE + frame_name + '.yaml'
+        reach_paths[frame_name] = path
+    return reach_paths
+
+
+def _load_aux_frames():
+    """Load G1 shin-link aux-frame descriptors from yaml."""
+    aux_frames = []
+    with open(_AUX_FRAMES_PATH, 'r') as f:
+        yml = YAML().load(f)
+        for fr in yml:
+            aux_frames.append(dict(fr))
+    return aux_frames
 
 
 def _unpack_traj(traj, frame_names, num_iris_tot, d=3):
@@ -128,7 +159,7 @@ def _visualize(traj_dict, iris_regions, iris_seq, safe_pnt_lst, title=""):
     ax = fig.add_subplot(111, projection='3d')
 
     # Draw IRIS region boxes as wireframes
-    box_colors = ['lightblue', 'lightgreen', 'lightyellow']
+    box_colors = ['lightblue', 'lightgreen', 'yellow']
     for reg_idx, reg in enumerate(iris_regions):
         b = reg['b']
         # bounds: x in [-b[3], b[0]], y in [-b[4], b[1]], z in [-b[5], b[2]]
@@ -183,7 +214,8 @@ def _draw_box_wireframe(ax, lo, hi, color='blue', label=None):
 class TestSolveMinReachIrisDistance(unittest.TestCase):
 
     def setUp(self):
-        self.tr = _make_traversable_regions()
+        reach_paths = _load_reach_paths(list(IRIS_SEQ.keys()))
+        self.tr = _make_traversable_regions(reach_paths)
         self.frame_names = list(IRIS_SEQ.keys())
         self.n_iris = _num_iris_tot(IRIS_SEQ)   # = 9
 
@@ -193,7 +225,6 @@ class TestSolveMinReachIrisDistance(unittest.TestCase):
     def test_feasible_no_reach_no_aux(self):
         """Solver must return a feasible solution with reach=None, aux=None."""
         traj, length, solve_time = solve_min_reach_iris_distance(
-            reach=None,
             traversable_regions=self.tr,
             aux_frames=None,
             weights_rigid=None,
@@ -226,13 +257,12 @@ class TestSolveMinReachIrisDistance(unittest.TestCase):
             np.array([0.0,   0.0,   0.0  ]),   # no regularisation
             np.array([1.0,   0.0,   1.0  ]),   # x/z only
             np.array([1.621, 0.0,   0.808]),   # default-like
-            np.array([5.0,   2.0,   5.0  ]),   # heavy regularisation
+            np.array([5.0,   0.0,   5.0  ]),   # heavy regularisation
         ]
 
         for w_rigid in w_rigid_cases:
             with self.subTest(w_rigid=w_rigid):
                 traj, length, solve_time = solve_min_reach_iris_distance(
-                    reach=None,
                     traversable_regions=self.tr,
                     aux_frames=None,
                     weights_rigid=w_rigid,
@@ -250,6 +280,78 @@ class TestSolveMinReachIrisDistance(unittest.TestCase):
                 if B_VISUALIZE:
                     _visualize(traj_dict, IRIS_LST, IRIS_SEQ, SAFE_PNT_LST,
                                title=f"w_rigid={np.round(w_rigid, 2)}")
+
+    # ------------------------------------------------------------------
+    # Test 3: G1 reachability constraints, no aux frames
+    # ------------------------------------------------------------------
+    def test_with_reach_only(self):
+        """Solver returns a feasible solution when G1 reachability halfspaces are active."""
+
+        traj, length, solve_time = solve_min_reach_iris_distance(
+            traversable_regions=self.tr,
+            aux_frames=None,
+            weights_rigid=None,
+        )
+
+        self.assertIsNotNone(traj, "Trajectory is None with reach constraints")
+        self.assertFalse(np.isnan(traj).any(), "NaN in trajectory with reach constraints")
+        self.assertGreater(solve_time, 0.0)
+
+        traj_dict = _unpack_traj(traj, self.frame_names, self.n_iris)
+        self._check_safe_points(traj_dict, tol=0.05)
+
+        if B_VISUALIZE:
+            _visualize(traj_dict, IRIS_LST, IRIS_SEQ, SAFE_PNT_LST,
+                       title="test_with_reach_only")
+
+    # ------------------------------------------------------------------
+    # Test 4: G1 shin-link aux-frame constraints, no reach region
+    # ------------------------------------------------------------------
+    def test_with_aux_frames_only(self):
+        """Solver returns a feasible solution when shin-link rigid constraints are active."""
+        aux_frames = _load_aux_frames()
+
+        traj, length, solve_time = solve_min_reach_iris_distance(
+            traversable_regions=self.tr,
+            aux_frames=aux_frames,
+            weights_rigid=np.array([1.621, 0.0, 0.808]),
+        )
+
+        self.assertIsNotNone(traj, "Trajectory is None with aux_frames")
+        self.assertFalse(np.isnan(traj).any(), "NaN in trajectory with aux_frames")
+        self.assertGreater(solve_time, 0.0)
+
+        traj_dict = _unpack_traj(traj, self.frame_names, self.n_iris)
+        self._check_safe_points(traj_dict, tol=0.05)
+
+        if B_VISUALIZE:
+            _visualize(traj_dict, IRIS_LST, IRIS_SEQ, SAFE_PNT_LST,
+                       title="test_with_aux_frames_only")
+
+
+    # ------------------------------------------------------------------
+    # Test 6: full G1 config — reach + aux frames together
+    # ------------------------------------------------------------------
+    def test_with_reach_and_aux_frames(self):
+        """Solver returns a feasible solution with both reach and shin-link constraints."""
+        aux_frames = _load_aux_frames()
+
+        traj, length, solve_time = solve_min_reach_iris_distance(
+            traversable_regions=self.tr,
+            aux_frames=aux_frames,
+            weights_rigid=np.array([1.621, 0.0, 0.808]),
+        )
+
+        self.assertIsNotNone(traj, "Trajectory is None with reach+aux_frames")
+        self.assertFalse(np.isnan(traj).any(), "NaN in trajectory with reach+aux_frames")
+        self.assertGreater(solve_time, 0.0)
+
+        traj_dict = _unpack_traj(traj, self.frame_names, self.n_iris)
+        self._check_safe_points(traj_dict, tol=0.05)
+
+        if B_VISUALIZE:
+            _visualize(traj_dict, IRIS_LST, IRIS_SEQ, SAFE_PNT_LST,
+                       title="test_with_reach_and_aux_frames")
 
     # ------------------------------------------------------------------
     # Helpers

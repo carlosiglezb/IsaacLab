@@ -40,8 +40,7 @@ def has_safe_point_at(points_sequence_order: List[np.ndarray],
 
     return [False]
 
-def optimize_multiple_bezier_iris(reach_region: dict[str: np.array, str: np.array],
-                                  aux_frames: List[dict],
+def optimize_multiple_bezier_iris(aux_frames: List[dict],
                                   traversable_regions: TraversableRegions,
                                   durations: List[dict[str, np.array]],
                                   alpha: dict[int: float],
@@ -50,13 +49,14 @@ def optimize_multiple_bezier_iris(reach_region: dict[str: np.array, str: np.arra
                                   contact_sequence=None,
                                   surface_normals_lst=None,
                                   weights_rigid_link=None,
-                                  b_use_knees_in_smooth_plan=True,
+                                  b_use_knees_in_smooth_plan=False,
                                   n_points=None, **kwargs):
     if weights_rigid_link is None:
-        weights_rigid_link = np.array([3500., 0.5, 10.])     # default for g1
+        weights_rigid_link = np.array([1., 0.0, 0.])     # default for g1
 
     iris_seq = traversable_regions.IRIS_seq
     safe_points_lst = traversable_regions.safe_points_lst
+    reach_region = traversable_regions.reach
 
     # number of frames
     n_frames = len(safe_points_lst[0].keys())
@@ -85,7 +85,7 @@ def optimize_multiple_bezier_iris(reach_region: dict[str: np.array, str: np.arra
             size = (n_points - i, d)
             points[k][i] = cp.Variable(size)
 
-    frame_list = list(safe_points_lst[0].keys())
+    frame_list = list(iris_seq.keys())
     constraints = []
 
     # Loop through boxes.

@@ -30,7 +30,7 @@ def plan_multiple_iris(traversable_regions: TraversableRegions,
 
     # Stage 1: minimum-reach-distance polygonal solve
     traj, length, solver_time = solve_min_reach_iris_distance(
-        R, traversable_regions, aux_frames=A, weights_rigid=w_rigid_poly)
+        traversable_regions, aux_frames=A, weights_rigid=w_rigid_poly)
     solver_stats['min_reach_iris_distance_cvxpy_time'] = solver_time
     if verbose:
         print(f"[Compute Time] Min. distance solve time: {solver_time}")
@@ -81,7 +81,7 @@ def plan_multiple_iris(traversable_regions: TraversableRegions,
     surface_normals_lst = motion_frames_seq.get_contact_surfaces()
 
     paths, sol_stats, points, dvars = optimize_multiple_bezier_iris(
-        R, A, traversable_regions, durations, alpha,
+        A, traversable_regions, durations, alpha,
         fixed_frames=fixed_frames,
         contact_sequence=parsed_contact_seq,
         surface_normals_lst=surface_normals_lst,

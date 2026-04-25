@@ -18,13 +18,13 @@ if b_debug:
     sys.path.append(cwd)
 
 
-def solve_min_reach_iris_distance(reach: dict[dict],
-                                  traversable_regions: TraversableRegions,
+def solve_min_reach_iris_distance(traversable_regions: TraversableRegions,
                                   aux_frames=None,
                                   weights_rigid: np.array = None) -> tuple:
     iris_regions = traversable_regions.regions        # list[dict{'A', 'b'}]
     iris_seq = traversable_regions.IRIS_seq           # {frame: [[seg0_idxs], ...]}
     safe_points_list = traversable_regions.safe_points_lst  # list[dict{frame: pos}]
+    reach = traversable_regions.reach
 
     if weights_rigid is None:
         weights_rigid = np.array([1, 0, 0])
@@ -120,7 +120,7 @@ def solve_min_reach_iris_distance(reach: dict[dict],
                 x_curr_idx += d
 
     # ---- Rigid-link SOC constraints ---------------------------------------------
-    frame_list = list(safe_points_list[0].keys())
+    frame_list = list(iris_seq.keys())
     cost_log_abs = 0.
     soc_constraint = []
     A_soc_debug, d_soc_debug, cost_log_abs_list = [], [], []
@@ -168,14 +168,16 @@ def solve_min_reach_iris_distance(reach: dict[dict],
         prob.solve(solver='SCS', eps_rel=0.05, eps_abs=0.05)
 
         for frame, constr_list in iris_constr.items():
-            residuals = [scipy.linalg.norm(ic.residual) for ic in constr_list]
-        rc_residuals = [scipy.linalg.norm(rc.residual) for rc in reach_constr]
+            residuals = [scipy.linalg.norm(ic.residual) for ic in constr_list
+                         if ic.residual is not None]
+        rc_residuals = [scipy.linalg.norm(rc.residual) for rc in reach_constr
+                        if rc.residual is not None]
 
     length = prob.value
     traj = x.value
     solver_time = prob.solver_stats.solve_time
 
-    if aux_frames is not None and A_soc_debug:
+    if aux_frames is not None and A_soc_debug and traj is not None:
         for Ai in A_soc_debug:
             _ = np.linalg.norm(Ai @ traj) - (link_threshold + 0.)
 

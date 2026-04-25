@@ -16,14 +16,22 @@ _REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../.
 if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
 
+from ruamel.yaml import YAML
+
 from extensions.traversable_regions import TraversableRegions
 from extensions.kin_feasibility.multiframe_fpp.mfpp_smooth import optimize_multiple_bezier_iris
 
-B_VISUALIZE = False  # flip to True for interactive 3D plots
+B_VISUALIZE = True  # flip to True for interactive 3D plots
+
+_ISAACLAB_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../.."))
+_REACH_DIR = os.path.join(_ISAACLAB_ROOT, 'extensions', 'kin_feasibility', 'reachability')
+_REACH_BASE = os.path.join(_REACH_DIR, 'g1_')
+_AUX_FRAMES_PATH = os.path.join(_REACH_DIR, 'g1_aux_frames.yaml')
 
 # ---------------------------------------------------------------------------
 # Shared fixtures (same IRIS geometry as test_mfpp_polygonal.py)
 # ---------------------------------------------------------------------------
+ROOT_TO_TORSO_OFFSET = [-0.0039635, 0.0, 0.164]
 
 A_MAT = np.vstack([np.eye(3), -np.eye(3)])
 
@@ -90,8 +98,42 @@ SAFE_PNT_LST = [
 ]
 
 
-def _make_traversable_regions():
-    return TraversableRegions(IRIS_LST, IRIS_SEQ, SAFE_PNT_LST)
+# Per-frame fixed-frame schedule from ResidualGuideTrackingEnvCfg.FIXED_FRAMES.
+G1_FIXED_FRAMES = [
+    ['LF', 'RF', 'L_knee', 'R_knee'],
+    ['LF', 'L_knee', 'LH', 'RH'],
+    ['RF', 'R_knee', 'LH', 'RH'],
+    ['LF', 'L_knee', 'RH'],
+    ['torso', 'LF', 'RF', 'L_knee', 'R_knee', 'LH'],
+]
+
+
+def _make_traversable_regions(reach_paths: dict):
+    return TraversableRegions(IRIS_LST, IRIS_SEQ, SAFE_PNT_LST, reach_paths, root_to_torso_pos=ROOT_TO_TORSO_OFFSET)
+
+
+def _load_reach_paths(frame_names):
+    """Load G1 convex-hull reachability halfspaces from yaml files."""
+    reach_paths = {}
+    for frame_name in frame_names:
+        if frame_name == 'torso':
+            continue
+        path = _REACH_BASE + frame_name + '.yaml'
+        reach_paths[frame_name] = path
+    return reach_paths
+
+def _update_plane_offset_from_root(_origin_pos, H, d):
+    return d + H @ _origin_pos
+
+
+def _load_aux_frames():
+    """Load G1 shin-link aux-frame descriptors from yaml."""
+    aux_frames = []
+    with open(_AUX_FRAMES_PATH, 'r') as f:
+        yml = YAML().load(f)
+        for fr in yml:
+            aux_frames.append(dict(fr))
+    return aux_frames
 
 
 def _make_durations(iris_seq, T=1.0):
@@ -171,12 +213,13 @@ def _draw_box_wireframe(ax, lo, hi, color='blue', label=None):
 class TestOptimizeMultipleBezierIris(unittest.TestCase):
 
     def setUp(self):
-        self.tr = _make_traversable_regions()
-        self.frame_list = list(SAFE_PNT_LST[0].keys())   # order from safe_points_lst[0]
+        reach_paths = _load_reach_paths(list(IRIS_SEQ.keys()))
+        self.tr = _make_traversable_regions(reach_paths)
+        self.frame_list = list(IRIS_SEQ.keys())   # order from safe_points_lst[0]
         self.n_iris = _num_iris_tot(IRIS_SEQ)             # 9
-        self.durations = _make_durations(IRIS_SEQ, T=1.0)
+        self.durations = _make_durations(IRIS_SEQ, T=3.0)
         self.alpha = {2: 1.0}                             # minimize integrated acceleration squared
-        self.fixed_frames = [None] * 5                    # no fixed frames
+        self.fixed_frames = G1_FIXED_FRAMES               # Contact Sequence C fixed frames
 
     # ------------------------------------------------------------------
     # Test 1: no reach, no aux-frames, no fixed frames
@@ -184,7 +227,6 @@ class TestOptimizeMultipleBezierIris(unittest.TestCase):
     def test_feasible_no_reach_no_aux(self):
         """Smooth solver returns a feasible solution with reach=None, aux=None."""
         path, sol_stats, points, dual_vars = optimize_multiple_bezier_iris(
-            reach_region=None,
             aux_frames=None,
             traversable_regions=self.tr,
             durations=self.durations,
@@ -226,7 +268,6 @@ class TestOptimizeMultipleBezierIris(unittest.TestCase):
         for alpha in alpha_cases:
             with self.subTest(alpha=alpha):
                 path, sol_stats, _, _ = optimize_multiple_bezier_iris(
-                    reach_region=None,
                     aux_frames=None,
                     traversable_regions=self.tr,
                     durations=self.durations,
@@ -246,40 +287,6 @@ class TestOptimizeMultipleBezierIris(unittest.TestCase):
                                      title=f"alpha={alpha}")
 
     # ------------------------------------------------------------------
-    # Test 3: some frames are pinned to safe points for entire segments
-    # ------------------------------------------------------------------
-    def test_with_fixed_frames(self):
-        """Solver remains feasible when feet are fixed in segment 0 and hands in segment 3."""
-        # Fixing a frame in the last segment (4) overrides the final safe-point constraint
-        # with SAFE_PNT_LST[4] instead of SAFE_PNT_LST[-1], causing check failures when the
-        # two differ. Use only intermediate segments (0–3) to avoid this.
-        fixed_frames = [
-            ['LF', 'RF'],   # fix feet in phase 0
-            None,
-            None,
-            ['LH', 'RH'],  # fix hands in phase 3 (not the final phase)
-            None,
-        ]
-
-        path, sol_stats, _, _ = optimize_multiple_bezier_iris(
-            reach_region=None,
-            aux_frames=None,
-            traversable_regions=self.tr,
-            durations=self.durations,
-            alpha=self.alpha,
-            fixed_frames=fixed_frames,
-        )
-
-        self.assertIsNotNone(path)
-        self.assertFalse(np.isnan(sol_stats['cost']))
-
-        self._check_safe_points(path, tol=0.05)
-
-        if B_VISUALIZE:
-            _visualize_smooth(path, self.frame_list, IRIS_LST, SAFE_PNT_LST,
-                              title="test_with_fixed_frames")
-
-    # ------------------------------------------------------------------
     # Test 4: G1 env fixed-frame schedule from g1_env_cfg.py
     # ------------------------------------------------------------------
     def test_g1_fixed_frames(self):
@@ -288,22 +295,12 @@ class TestOptimizeMultipleBezierIris(unittest.TestCase):
         FIXED_FRAMES[4] (last segment) only contains frames whose SAFE_PNT_LST[4] value
         equals SAFE_PNT_LST[-1], so the final safe-point check still passes.
         """
-        # Copied verbatim from g1_env_cfg.py :: ResidualGuideTrackingEnvCfg.FIXED_FRAMES
-        g1_fixed_frames = [
-            ['LF', 'RF', 'L_knee', 'R_knee'],       # seg 0: lower body stationary
-            ['LF', 'L_knee', 'LH', 'RH'],            # seg 1: right side steps through
-            ['RF', 'R_knee', 'LH', 'RH'],            # seg 2: left side steps through
-            ['LF', 'L_knee', 'RH'],                  # seg 3: partial re-plant
-            ['torso', 'LF', 'RF', 'L_knee', 'R_knee', 'LH'],  # seg 4: square up
-        ]
-
         path, sol_stats, _, _ = optimize_multiple_bezier_iris(
-            reach_region=None,
             aux_frames=None,
             traversable_regions=self.tr,
             durations=self.durations,
             alpha=self.alpha,
-            fixed_frames=g1_fixed_frames,
+            fixed_frames=G1_FIXED_FRAMES,
         )
 
         self.assertIsNotNone(path)
@@ -318,12 +315,87 @@ class TestOptimizeMultipleBezierIris(unittest.TestCase):
                               title="test_g1_fixed_frames")
 
     # ------------------------------------------------------------------
-    # Test 5: C0 continuity at bezier segment junctions
+    # Test 5: G1 reachability constraints, no aux frames
+    # ------------------------------------------------------------------
+    def test_with_reach_only(self):
+        """Smooth solver returns a feasible solution when G1 reachability halfspaces are active."""
+        path, sol_stats, _, _ = optimize_multiple_bezier_iris(
+            aux_frames=None,
+            traversable_regions=self.tr,
+            durations=self.durations,
+            alpha=self.alpha,
+            fixed_frames=self.fixed_frames,
+        )
+
+        self.assertIsNotNone(path, "Path is None with reach constraints")
+        self.assertEqual(len(path), len(self.frame_list))
+        self.assertFalse(np.isnan(sol_stats['cost']), "Cost is NaN with reach constraints")
+        self.assertGreater(sol_stats['runtime'], 0.0)
+
+        self._check_safe_points(path, tol=0.05)
+
+        if B_VISUALIZE:
+            _visualize_smooth(path, self.frame_list, IRIS_LST, SAFE_PNT_LST,
+                              title="test_with_reach_only")
+
+    # ------------------------------------------------------------------
+    # Test 6: G1 shin-link aux-frame constraints, no reach region
+    # ------------------------------------------------------------------
+    def test_with_aux_frames_only(self):
+        """Smooth solver returns a feasible solution when shin-link rigid constraints are active."""
+        aux_frames = _load_aux_frames()
+
+        path, sol_stats, _, _ = optimize_multiple_bezier_iris(
+            aux_frames=aux_frames,
+            traversable_regions=self.tr,
+            durations=self.durations,
+            alpha=self.alpha,
+            fixed_frames=self.fixed_frames,
+        )
+
+        self.assertIsNotNone(path, "Path is None with aux_frames")
+        self.assertEqual(len(path), len(self.frame_list))
+        self.assertFalse(np.isnan(sol_stats['cost']), "Cost is NaN with aux_frames")
+        self.assertGreater(sol_stats['runtime'], 0.0)
+
+        self._check_safe_points(path, tol=0.05)
+
+        if B_VISUALIZE:
+            _visualize_smooth(path, self.frame_list, IRIS_LST, SAFE_PNT_LST,
+                              title="test_with_aux_frames_only")
+
+    # ------------------------------------------------------------------
+    # Test 7: full G1 config — reach + aux frames together
+    # ------------------------------------------------------------------
+    def test_with_reach_and_aux_frames(self):
+        """Smooth solver returns a feasible solution with both reach and shin-link constraints."""
+        aux_frames = _load_aux_frames()
+
+        path, sol_stats, _, _ = optimize_multiple_bezier_iris(
+            aux_frames=aux_frames,
+            traversable_regions=self.tr,
+            durations=self.durations,
+            alpha=self.alpha,
+            fixed_frames=self.fixed_frames,
+        )
+
+        self.assertIsNotNone(path, "Path is None with reach+aux_frames")
+        self.assertEqual(len(path), len(self.frame_list))
+        self.assertFalse(np.isnan(sol_stats['cost']), "Cost is NaN with reach+aux_frames")
+        self.assertGreater(sol_stats['runtime'], 0.0)
+
+        self._check_safe_points(path, tol=0.05)
+
+        if B_VISUALIZE:
+            _visualize_smooth(path, self.frame_list, IRIS_LST, SAFE_PNT_LST,
+                              title="test_with_reach_and_aux_frames")
+
+    # ------------------------------------------------------------------
+    # Test 8: C0 continuity at bezier segment junctions
     # ------------------------------------------------------------------
     def test_bezier_c0_continuity(self):
         """End-point of each Bezier piece matches start-point of the next."""
         path, _, _, _ = optimize_multiple_bezier_iris(
-            reach_region=None,
             aux_frames=None,
             traversable_regions=self.tr,
             durations=self.durations,
