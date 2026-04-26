@@ -12,9 +12,14 @@ from collections import OrderedDict
 
 import numpy as np
 
-_REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../.."))
+_REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../.."))
 if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
+
+_ISAACLAB_ROOT = _REPO_ROOT
+_REACH_DIR = os.path.join(_ISAACLAB_ROOT, 'extensions', 'kin_feasibility', 'reachability')
+_REACH_BASE = os.path.join(_REACH_DIR, 'g1_')
+_AUX_FRAMES_PATH = os.path.join(_REACH_DIR, 'g1_aux_frames.yaml')
 
 from ruamel.yaml import YAML
 
@@ -22,11 +27,6 @@ from extensions.traversable_regions import TraversableRegions
 from extensions.kin_feasibility.multiframe_fpp.mfpp_smooth import optimize_multiple_bezier_iris
 
 B_VISUALIZE = True  # flip to True for interactive 3D plots
-
-_ISAACLAB_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../.."))
-_REACH_DIR = os.path.join(_ISAACLAB_ROOT, 'extensions', 'kin_feasibility', 'reachability')
-_REACH_BASE = os.path.join(_REACH_DIR, 'g1_')
-_AUX_FRAMES_PATH = os.path.join(_REACH_DIR, 'g1_aux_frames.yaml')
 
 # ---------------------------------------------------------------------------
 # Shared fixtures (same IRIS geometry as test_mfpp_polygonal.py)
@@ -109,7 +109,7 @@ G1_FIXED_FRAMES = [
 
 
 def _make_traversable_regions(reach_paths: dict):
-    return TraversableRegions(IRIS_LST, IRIS_SEQ, SAFE_PNT_LST, reach_paths, root_to_torso_pos=ROOT_TO_TORSO_OFFSET)
+    return TraversableRegions(IRIS_LST, IRIS_SEQ, SAFE_PNT_LST, None, root_to_torso_pos=ROOT_TO_TORSO_OFFSET)
 
 
 def _load_reach_paths(frame_names):
@@ -217,7 +217,7 @@ class TestOptimizeMultipleBezierIris(unittest.TestCase):
         self.tr = _make_traversable_regions(reach_paths)
         self.frame_list = list(IRIS_SEQ.keys())   # order from safe_points_lst[0]
         self.n_iris = _num_iris_tot(IRIS_SEQ)             # 9
-        self.durations = _make_durations(IRIS_SEQ, T=3.0)
+        self.durations = _make_durations(IRIS_SEQ, T=3.0) # assume 3s per IRIS region
         self.alpha = {2: 1.0}                             # minimize integrated acceleration squared
         self.fixed_frames = G1_FIXED_FRAMES               # Contact Sequence C fixed frames
 

@@ -42,39 +42,33 @@ def plan_multiple_iris(traversable_regions: TraversableRegions,
     first_frame = frame_names[0]
     n_phases = len(iris_seq[first_frame])
     n_f = len(frame_names)
-    num_iris_tot = sum(len(iris_seq[first_frame][p]) for p in range(n_phases))
-
-    # Build per-frame, per-segment duration arrays from the polygonal solution.
-    # traj layout: [frame0_pt0..frame0_pt{num_iris_tot}, frame1_pt0..., ...]
-    # Each frame has (num_iris_tot + 1) d-dim points.
-    n_poly_points = num_iris_tot + 1
-
+    n_poly_points = round(len(traj) / n_f)
     durations = []
-    for seg_idx in range(n_phases):
+    ir_i = 0
+    for phase_idx in range(n_phases):
         durations.append({})
+        num_iris = len(iris_seq[first_frame][phase_idx])
+        for frame_idx, (frame, phase_iris_lists) in enumerate(iris_seq.items()):
+            ir = phase_iris_lists[phase_idx]
+            # Collect boundary-point indices for all num_iris+1 waypoints of this
+            # frame/phase.  Each 3-D point occupies d consecutive elements in traj.
+            for b in range(num_iris + 1):
+                first_idx = n_poly_points * frame_idx + (b + ir_i) * d
+                last_idx = first_idx + d - 1
+                if b == 0:
+                    ee_traj_idx = np.linspace(first_idx, last_idx, d).astype(int)
+                else:
+                    ee_traj_idx = np.vstack((ee_traj_idx, np.linspace(first_idx, last_idx, d).astype(int)))
 
-    for frame_idx, frame in enumerate(frame_names):
-        frame_start = frame_idx * n_poly_points * d
-
-        # Collect all (num_iris_tot + 1) waypoints for this frame
-        frame_traj = traj[frame_start: frame_start + n_poly_points * d]
-        pts = frame_traj.reshape(n_poly_points, d)           # (N+1, 3)
-        diffs = np.linalg.norm(pts[1:] - pts[:-1], axis=1)  # (N,)
-
-        # Guard against zero total length
-        total = diffs.sum()
-        if total < 1e-8:
-            diffs = np.ones(num_iris_tot) / num_iris_tot
-
-        # Normalise so that all durations across all phases sum to T
-        diffs = diffs * T / diffs.sum()
-
-        # Distribute into per-phase arrays matching iris_seq layout
-        ir_offset = 0
-        for seg_idx in range(n_phases):
-            n_ir = len(iris_seq[frame][seg_idx])
-            durations[seg_idx][frame] = diffs[ir_offset: ir_offset + n_ir]
-            ir_offset += n_ir
+            ee_traj_change = traj[ee_traj_idx[1:]] - traj[ee_traj_idx[:-1]]
+            seg_lengths = np.linalg.norm(ee_traj_change, axis=1)   # (num_iris,)
+            total = seg_lengths.sum()
+            if total < 1e-10:
+                # Degenerate: all waypoints coincide — distribute time evenly.
+                durations[phase_idx][frame] = np.full(num_iris, T / num_iris)
+            else:
+                durations[phase_idx][frame] = seg_lengths * (T / total)
+        ir_i += num_iris
 
     # Stage 2: smooth Bezier solve
     parsed_contact_seq = get_contact_seq_from_fixed_frames_seq(fixed_frames)
