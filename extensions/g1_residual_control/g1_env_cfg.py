@@ -1,0 +1,535 @@
+# Copyright (c) 2022-2026, The Isaac Lab Project Developers.
+# SPDX-License-Identifier: BSD-3-Clause
+
+"""Environment configuration for residual policy learning on the G1.
+
+Architecture
+------------
+  base policy (pre-trained loco-manipulation checkpoint)
+      ↓  q_base  (full-body joint targets)
+  residual policy (what we are training here)
+      ↓  δq       (learned correction, scaled by ``JointResidualActionCfg.scale``)
+  q_cmd = q_base + δq
+
+The residual policy observes proprioceptive state plus position-tracking
+errors between the current body poses and guide trajectories generated
+by the user's planner package.  Guide-related MDP terms live in ``mdp.py``
+and are currently stubs; fill them in once the planner is wired in.
+"""
+
+import os
+
+import numpy as np
+
+import math
+
+from collections import OrderedDict
+
+from .g1_planner_constants import (
+    IRIS_0, IRIS_1, IRIS_2, IRIS_LST, IRIS_SEQ,
+    SAFE_PNT_LST, FIXED_FRAMES, ROOT_TO_TORSO_OFFSET,
+)
+
+import isaaclab.envs.mdp as base_mdp
+import isaaclab.sim as sim_utils
+from isaaclab.assets import ArticulationCfg, AssetBaseCfg
+from isaaclab.envs import ManagerBasedRLEnvCfg
+from isaaclab.managers import EventTermCfg as EventTerm
+from isaaclab.managers import ObservationGroupCfg as ObsGroup
+from isaaclab.managers import ObservationTermCfg as ObsTerm
+from isaaclab.managers import RewardTermCfg as RewTerm
+from isaaclab.managers import SceneEntityCfg
+from isaaclab.managers import TerminationTermCfg as DoneTerm
+from isaaclab.scene import InteractiveSceneCfg
+from isaaclab.sim.spawners.from_files.from_files_cfg import GroundPlaneCfg
+from isaaclab.utils import configclass
+from isaaclab.utils.assets import ISAACLAB_NUCLEUS_DIR
+
+from isaaclab_assets import G1_PRIMITIVE_COLLISIONS
+
+from .actions_cfg import JointResidualActionCfg
+from . import mdp as residual_mdp
+import isaaclab_tasks.manager_based.locomotion.velocity.mdp as velocity_mdp
+
+cwd = os.getcwd()
+
+
+# ---------------------------------------------------------------------------
+# Scene
+# ---------------------------------------------------------------------------
+
+@configclass
+class LocomanipulationG1SceneCfg(InteractiveSceneCfg):
+    """G1 scene with the Navy-door knee-knocker obstacle."""
+
+    hole = AssetBaseCfg(
+        prim_path="{ENV_REGEX_NS}/KneeKnocker",
+        spawn=sim_utils.UrdfFileCfg(
+            asset_path=f"{cwd}/source/my_usds/navy_door.urdf",
+            fix_base=None,
+            joint_drive=None,
+            rigid_props=sim_utils.RigidBodyPropertiesCfg(kinematic_enabled=True),
+        ),
+        init_state=AssetBaseCfg.InitialStateCfg(
+            pos=(0.25, 0.0, 0.0),
+            rot=(0.707, 0, 0, 0.707),
+        ),
+    )
+
+    robot: ArticulationCfg = G1_PRIMITIVE_COLLISIONS
+
+    ground = AssetBaseCfg(
+        prim_path="/World/GroundPlane",
+        spawn=GroundPlaneCfg(),
+    )
+
+    light = AssetBaseCfg(
+        prim_path="/World/light",
+        spawn=sim_utils.DomeLightCfg(color=(0.75, 0.75, 0.75), intensity=3000.0),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Actions
+# ---------------------------------------------------------------------------
+
+@configclass
+class ActionsCfg:
+    """Single residual action term over the full joint space.
+
+    ``JointResidualAction.apply_action()`` is responsible for:
+      1. Loading the base loco-manipulation policy from ``base_policy_path``.
+      2. Running a forward pass using the ``base_policy`` observation group.
+      3. Adding the residual network output (scaled by ``scale``) to q_base.
+
+    The base policy path is set in ``ResidualGuideTrackingEnvCfg.__post_init__``
+    so it can be overridden without touching this dataclass.
+    """
+
+    joint_residual = JointResidualActionCfg(
+        asset_name="robot",
+        joint_names=[".*"],
+        scale=0.15,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Observations
+# ---------------------------------------------------------------------------
+
+@configclass
+class ObservationsCfg:
+
+    @configclass
+    class PolicyCfg(ObsGroup):
+        """Observations fed to the residual policy network.
+
+        Comprises three groups:
+          (a) Proprioceptive robot state
+          (b) Guide trajectory targets for the seven tracked bodies
+          (c) Position tracking errors (current pose – guide target)
+          (d) Previous residual action
+        """
+
+        # ---- (a) Proprioception ----------------------------------------
+        joint_pos = ObsTerm(
+            func=base_mdp.joint_pos_rel,
+            params={"asset_cfg": SceneEntityCfg("robot")},
+        )
+        joint_vel = ObsTerm(
+            func=base_mdp.joint_vel_rel,
+            scale=0.1,
+            params={"asset_cfg": SceneEntityCfg("robot")},
+        )
+        base_lin_vel = ObsTerm(
+            func=base_mdp.base_lin_vel,
+            params={"asset_cfg": SceneEntityCfg("robot")},
+        )
+        base_ang_vel = ObsTerm(
+            func=base_mdp.base_ang_vel,
+            params={"asset_cfg": SceneEntityCfg("robot")},
+        )
+        projected_gravity = ObsTerm(
+            func=base_mdp.projected_gravity,
+            params={"asset_cfg": SceneEntityCfg("robot")},
+        )
+
+        # ---- (b) Guide trajectory targets (world-frame position, 3-D each)
+        # PLACEHOLDER: these call stubs in mdp.py and will raise
+        # NotImplementedError until the guide planner is integrated.
+        guide_left_hand_pos = ObsTerm(
+            func=residual_mdp.guide_body_target_pos,
+            params={"body_name": "left_palm_link"},
+        )
+        guide_right_hand_pos = ObsTerm(
+            func=residual_mdp.guide_body_target_pos,
+            params={"body_name": "right_palm_link"},
+        )
+        guide_torso_pos = ObsTerm(
+            func=residual_mdp.guide_body_target_pos,
+            params={"body_name": "torso_link"},
+        )
+        guide_left_knee_pos = ObsTerm(
+            func=residual_mdp.guide_body_target_pos,
+            params={"body_name": "left_knee_link"},
+        )
+        guide_right_knee_pos = ObsTerm(
+            func=residual_mdp.guide_body_target_pos,
+            params={"body_name": "right_knee_link"},
+        )
+        guide_left_foot_pos = ObsTerm(
+            func=residual_mdp.guide_body_target_pos,
+            params={"body_name": "left_ankle_roll_link"},
+        )
+        guide_right_foot_pos = ObsTerm(
+            func=residual_mdp.guide_body_target_pos,
+            params={"body_name": "right_ankle_roll_link"},
+        )
+
+        # ---- (c) Tracking errors (current body pos − guide target, per link)
+        # PLACEHOLDER: stubs in mdp.py
+        tracking_error_hands = ObsTerm(
+            func=residual_mdp.guide_tracking_error,
+            params={"body_names": ["left_palm_link", "right_palm_link"]},
+        )
+        tracking_error_torso = ObsTerm(
+            func=residual_mdp.guide_tracking_error,
+            params={"body_names": ["torso_link"]},
+        )
+        tracking_error_knees = ObsTerm(
+            func=residual_mdp.guide_tracking_error,
+            params={"body_names": ["left_knee_link", "right_knee_link"]},
+        )
+        tracking_error_feet = ObsTerm(
+            func=residual_mdp.guide_tracking_error,
+            params={"body_names": ["left_ankle_roll_link", "right_ankle_roll_link"]},
+        )
+
+        # ---- (d) Commands (same signals the base policy conditions on)
+        velocity_command = ObsTerm(
+            func=base_mdp.generated_commands,
+            params={"command_name": "base_velocity"},
+        )
+        ee_left_hand_command = ObsTerm(
+            func=base_mdp.generated_commands,
+            params={"command_name": "ee_left_hand"},
+        )
+        ee_right_hand_command = ObsTerm(
+            func=base_mdp.generated_commands,
+            params={"command_name": "ee_right_hand"},
+        )
+
+        # ---- (e) Previous residual action
+        last_residual_action = ObsTerm(
+            func=base_mdp.last_action,
+            params={"action_name": "joint_residual"},
+        )
+
+        def __post_init__(self):
+            self.enable_corruption = False
+            self.concatenate_terms = True
+
+    @configclass
+    class BasePolicyCfg(ObsGroup):
+        """Observations fed to the frozen base loco-manipulation policy.
+
+        PLACEHOLDER: mirror the exact observation format that the base
+        checkpoint was trained on.  The current layout follows the agile
+        locomotion policy convention as a reasonable starting point.
+        Update joint_names and any extra terms once the base policy's
+        training config is confirmed.
+        """
+
+        base_lin_vel = ObsTerm(
+            func=base_mdp.base_lin_vel,
+            params={"asset_cfg": SceneEntityCfg("robot")},
+        )
+        base_ang_vel = ObsTerm(
+            func=base_mdp.base_ang_vel,
+            params={"asset_cfg": SceneEntityCfg("robot")},
+        )
+        projected_gravity = ObsTerm(
+            func=base_mdp.projected_gravity,
+            params={"asset_cfg": SceneEntityCfg("robot")},
+        )
+        joint_pos = ObsTerm(
+            func=base_mdp.joint_pos_rel,
+            params={
+                "asset_cfg": SceneEntityCfg(
+                    "robot",
+                    joint_names=[
+                        ".*_shoulder_.*_joint",
+                        ".*_elbow_joint",
+                        ".*_wrist_.*_joint",
+                        ".*_hip_.*_joint",
+                        ".*_knee_joint",
+                        ".*_ankle_.*_joint",
+                        "waist_.*_joint",
+                    ],
+                )
+            },
+        )
+        joint_vel = ObsTerm(
+            func=base_mdp.joint_vel_rel,
+            scale=0.1,
+            params={
+                "asset_cfg": SceneEntityCfg(
+                    "robot",
+                    joint_names=[
+                        ".*_shoulder_.*_joint",
+                        ".*_elbow_joint",
+                        ".*_wrist_.*_joint",
+                        ".*_hip_.*_joint",
+                        ".*_knee_joint",
+                        ".*_ankle_.*_joint",
+                        "waist_.*_joint",
+                    ],
+                )
+            },
+        )
+
+        # Commands — must mirror the base checkpoint's training obs exactly.
+        velocity_command = ObsTerm(
+            func=base_mdp.generated_commands,
+            params={"command_name": "base_velocity"},
+        )
+        ee_left_hand_command = ObsTerm(
+            func=base_mdp.generated_commands,
+            params={"command_name": "ee_left_hand"},
+        )
+        ee_right_hand_command = ObsTerm(
+            func=base_mdp.generated_commands,
+            params={"command_name": "ee_right_hand"},
+        )
+
+        def __post_init__(self):
+            self.enable_corruption = False
+            self.concatenate_terms = True
+
+    policy: PolicyCfg = PolicyCfg()
+    base_policy: BasePolicyCfg = BasePolicyCfg()
+
+
+# ---------------------------------------------------------------------------
+# Rewards
+# ---------------------------------------------------------------------------
+
+@configclass
+class RewardsCfg:
+    """Reward terms for the residual guide-tracking task.
+
+    Tracking rewards use an exponential kernel  exp(-||e||² / σ²),
+    which gives a smooth gradient everywhere and equals 1.0 at zero error.
+    Weights and σ values below are initial guesses — tune via sweep.
+    """
+
+    # ---- Guide position tracking -----------------------------------------
+    track_left_hand_pos = RewTerm(
+        func=residual_mdp.guide_pos_tracking_exp,
+        weight=2.0,
+        params={"body_name": "left_palm_link", "sigma": 0.10},
+    )
+    track_right_hand_pos = RewTerm(
+        func=residual_mdp.guide_pos_tracking_exp,
+        weight=2.0,
+        params={"body_name": "right_palm_link", "sigma": 0.10},
+    )
+    track_torso_pos = RewTerm(
+        func=residual_mdp.guide_pos_tracking_exp,
+        weight=1.5,
+        params={"body_name": "torso_link", "sigma": 0.15},
+    )
+    track_left_knee_pos = RewTerm(
+        func=residual_mdp.guide_pos_tracking_exp,
+        weight=1.0,
+        params={"body_name": "left_knee_link", "sigma": 0.10},
+    )
+    track_right_knee_pos = RewTerm(
+        func=residual_mdp.guide_pos_tracking_exp,
+        weight=1.0,
+        params={"body_name": "right_knee_link", "sigma": 0.10},
+    )
+    track_left_foot_pos = RewTerm(
+        func=residual_mdp.guide_pos_tracking_exp,
+        weight=1.0,
+        params={"body_name": "left_ankle_roll_link", "sigma": 0.10},
+    )
+    track_right_foot_pos = RewTerm(
+        func=residual_mdp.guide_pos_tracking_exp,
+        weight=1.0,
+        params={"body_name": "right_ankle_roll_link", "sigma": 0.10},
+    )
+
+    # ---- Regularization --------------------------------------------------
+    # Penalise the magnitude of the residual δq — keeps the residual small
+    # so the base policy remains in control and the correction is surgical.
+    residual_magnitude = RewTerm(func=base_mdp.action_l2, weight=-0.05)
+    # Penalise large changes in the residual to keep actions smooth.
+    action_rate = RewTerm(func=base_mdp.action_rate_l2, weight=-0.01)
+    # Penalise high joint velocities to reduce wear-and-tear behaviour.
+    joint_vel = RewTerm(
+        func=base_mdp.joint_vel_l2,
+        weight=-1e-4,
+        params={"asset_cfg": SceneEntityCfg("robot")},
+    )
+
+    # ---- Alive bonus -----------------------------------------------------
+    # Small constant reward for surviving each timestep; prevents the policy
+    # from learning to terminate early to avoid tracking penalties.
+    alive = RewTerm(func=base_mdp.is_alive, weight=0.5)
+
+
+# ---------------------------------------------------------------------------
+# Terminations
+# ---------------------------------------------------------------------------
+
+@configclass
+class TerminationsCfg:
+    """Episode termination conditions."""
+
+    time_out = DoneTerm(func=base_mdp.time_out, time_out=True)
+
+    # Terminate if the pelvis drops below 0.5 m (robot has fallen).
+    robot_fell = DoneTerm(
+        func=base_mdp.root_height_below_minimum,
+        params={"minimum_height": 0.3, "asset_cfg": SceneEntityCfg("robot")},
+    )
+
+# ---------------------------------------------------------------------------
+# Events
+# ---------------------------------------------------------------------------
+
+@configclass
+class EventsCfg:
+    """Lifecycle event hooks for guide dataset management."""
+
+    # Load GuideDataset from disk and allocate env.guide_waypoints once.
+    startup_guide_init = EventTerm(
+        func=residual_mdp.startup_guide_init,
+        mode="startup",
+    )
+
+    # Resample guides for environments that just reset.
+    reset_guide_assignment = EventTerm(
+        func=residual_mdp.reset_guide_assignment,
+        mode="reset",
+    )
+
+
+# ---------------------------------------------------------------------------
+# Commands
+# ---------------------------------------------------------------------------
+
+@configclass
+class CommandsCfg:
+    """Commands passed to the base policy.
+
+    All ranges are collapsed to a single value (min == max) so the command
+    never resamples during an episode — the traversal scenario is fixed.
+    Hand pose targets are expressed in the robot's base frame, matching the
+    frame convention the base checkpoint was trained with.
+    """
+
+    base_velocity = base_mdp.UniformVelocityCommandCfg(
+        asset_name="robot",
+        resampling_time_range=(1.0e9, 1.0e9),
+        ranges=base_mdp.UniformVelocityCommandCfg.Ranges(
+            lin_vel_x=(0.4, 0.4),
+            lin_vel_y=(0.0, 0.0),
+            ang_vel_z=(0.0, 0.0),
+        ),
+    )
+
+    # Left palm: forward and slightly left, arms tucked for narrow passage.
+    # pos_x/y/z are in the robot base frame (metres); roll/pitch/yaw in rad.
+    ee_left_hand = base_mdp.UniformPoseCommandCfg(
+        asset_name="robot",
+        body_name="left_palm_link",
+        resampling_time_range=(1.0e9, 1.0e9),
+        ranges=base_mdp.UniformPoseCommandCfg.Ranges(
+            pos_x=(0.25, 0.25),
+            pos_y=(0.15, 0.15),
+            pos_z=(0.05, 0.05),
+            roll=(0.0, 0.0),
+            pitch=(0.0, 0.0),
+            yaw=(0.0, 0.0),
+        ),
+    )
+
+    ee_right_hand = base_mdp.UniformPoseCommandCfg(
+        asset_name="robot",
+        body_name="right_palm_link",
+        resampling_time_range=(1.0e9, 1.0e9),
+        ranges=base_mdp.UniformPoseCommandCfg.Ranges(
+            pos_x=(0.25, 0.25),
+            pos_y=(-0.15, -0.15),
+            pos_z=(0.05, 0.05),
+            roll=(0.0, 0.0),
+            pitch=(0.0, 0.0),
+            yaw=(0.0, 0.0),
+        ),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Main environment configuration
+# ---------------------------------------------------------------------------
+
+@configclass
+class ResidualGuideTrackingEnvCfg(ManagerBasedRLEnvCfg):
+    """RL environment for training a residual policy over a pre-trained
+    loco-manipulation base on the G1 with the knee-knocker obstacle.
+
+    The robot must track guide trajectories for its hands, torso, knees,
+    and feet while the base policy handles gross locomotion.
+
+    IRIS collision regions
+    ---------------------
+    Three overlapping axis-aligned boxes (defined in the robot's local
+    world frame) represent the collision-free navigation corridors around
+    the Navy door.  A_mat encodes both ≤ and ≥ bounds via sign flip.
+
+    The IRIS_seq dict maps body names (as used by the planner) to the
+    sequence of region indices each body should pass through.
+    """
+
+    # ---- Managers --------------------------------------------------------
+    scene: LocomanipulationG1SceneCfg = LocomanipulationG1SceneCfg(
+        num_envs=1, env_spacing=2.5, replicate_physics=True
+    )
+    observations: ObservationsCfg = ObservationsCfg()
+    actions: ActionsCfg = ActionsCfg()
+    rewards: RewardsCfg = RewardsCfg()
+    terminations: TerminationsCfg = TerminationsCfg()
+    events: EventsCfg = EventsCfg()
+    commands: CommandsCfg = CommandsCfg()
+    curriculum = None
+
+    # ---- IRIS collision regions and planner constants --------------------
+    # Imported from g1_planner_constants to avoid duplicating geometry here.
+    IRIS_0 = IRIS_0
+    IRIS_1 = IRIS_1
+    IRIS_2 = IRIS_2
+    IRIS_seq = IRIS_SEQ
+    SAFE_PNT_LST: list = SAFE_PNT_LST
+    FIXED_FRAMES: list = FIXED_FRAMES
+
+    # ---- Base policy ----------------------------------------------------
+    # Path to the pre-trained loco-manipulation policy checkpoint.
+    # Override this in a subclass or set it before instantiating the env.
+    BASE_POLICY_PATH: str = "logs/rsl_rl/g1_locomanipulation/policy.pt"
+
+    # ---- Guide dataset --------------------------------------------------
+    # Path to the .npz file produced by generate_guide_dataset().
+    GUIDE_DATASET_PATH: str = "guide_dataset.npz"
+
+    def __post_init__(self):
+        """Post-initialisation: sim timing and action-term configuration."""
+        self.decimation = 4
+        self.episode_length_s = 20.0
+        self.sim.dt = 1.0 / 200.0   # 200 Hz physics
+        self.sim.render_interval = 2
+
+        # Forward the base policy path into the action term so
+        # JointResidualAction can load the checkpoint at startup.
+        self.actions.joint_residual.base_policy_path = self.BASE_POLICY_PATH
