@@ -29,7 +29,7 @@ def startup_guide_init(
     Attaches ``env.guide_dataset`` (GuideDataset) and
     ``env.guide_waypoints`` (num_envs, n_frames, n_waypoints, 3) to the env.
     """
-    from extensions.g1_residual_control.guide_dataset import GuideDataset
+    from .guide_dataset import GuideDataset
 
     dataset_path: str = env.cfg.GUIDE_DATASET_PATH
     env.guide_dataset = GuideDataset(dataset_path, device=str(env.device))
@@ -41,11 +41,18 @@ def startup_guide_init(
         device=env.device,
     )
 
+    # Allocate per-env duration buffer
+    env.guide_T_per_env = torch.full(
+        (env.num_envs,), ds.T_plan, device=env.device
+    )
+
     # Sample initial guides for all environments
     robot: Articulation = env.scene["robot"]
     torso_idx = robot.find_bodies("torso_link")[0][0]
     p_torso = robot.data.body_pos_w[:, torso_idx, :3]  # (num_envs, 3)
-    env.guide_waypoints[:] = ds.sample(env.num_envs, p_torso)
+    guides, T_per_env = ds.sample(env.num_envs, p_torso)
+    env.guide_waypoints[:] = guides
+    env.guide_T_per_env[:] = T_per_env
 
 
 def reset_guide_assignment(
@@ -66,8 +73,9 @@ def reset_guide_assignment(
     torso_idx = robot.find_bodies("torso_link")[0][0]
     p_torso = robot.data.body_pos_w[env_ids, torso_idx, :3]  # (n_reset, 3)
 
-    new_guides = env.guide_dataset.sample(n_reset, p_torso)   # (n_reset, F, W, 3)
+    new_guides, new_T = env.guide_dataset.sample(n_reset, p_torso)
     env.guide_waypoints[env_ids] = new_guides
+    env.guide_T_per_env[env_ids] = new_T
 
 
 # ---------------------------------------------------------------------------
@@ -91,9 +99,11 @@ def guide_body_target_pos(
     ds = env.guide_dataset
     frame_idx: int = ds.body_name_to_idx[body_name]
 
-    t_elapsed = env.episode_length_buf * env.step_dt              # (num_envs,)
-    targets = ds.query_targets(env.guide_waypoints, t_elapsed)    # (num_envs, F, 3)
-    return targets[:, frame_idx, :]                               # (num_envs, 3)
+    t_elapsed = env.episode_length_buf * env.step_dt
+    targets = ds.query_targets(
+        env.guide_waypoints, t_elapsed, T_per_env=env.guide_T_per_env
+    )
+    return targets[:, frame_idx, :]
 
 
 def guide_tracking_error(
@@ -116,7 +126,9 @@ def guide_tracking_error(
     robot: Articulation = env.scene[asset_cfg.name]
 
     t_elapsed = env.episode_length_buf * env.step_dt
-    all_targets = ds.query_targets(env.guide_waypoints, t_elapsed)  # (num_envs, F, 3)
+    all_targets = ds.query_targets(
+        env.guide_waypoints, t_elapsed, T_per_env=env.guide_T_per_env
+    )
 
     errors: list[torch.Tensor] = []
     for body_name in body_names:
@@ -166,7 +178,9 @@ def guide_pos_tracking_exp(
     body_idx  = robot.find_bodies(body_name)[0][0]
 
     t_elapsed   = env.episode_length_buf * env.step_dt
-    all_targets = ds.query_targets(env.guide_waypoints, t_elapsed)  # (num_envs, F, 3)
+    all_targets = ds.query_targets(
+        env.guide_waypoints, t_elapsed, T_per_env=env.guide_T_per_env
+    )
 
     current = robot.data.body_pos_w[:, body_idx, :3]                # (num_envs, 3)
     target  = all_targets[:, frame_idx, :]                          # (num_envs, 3)

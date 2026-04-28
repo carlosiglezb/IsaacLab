@@ -43,8 +43,8 @@ FRAME_TO_BODY: dict[str, str] = {
     "RF":     "right_ankle_roll_link",
     "L_knee": "left_knee_link",
     "R_knee": "right_knee_link",
-    "LH":     "left_palm_link",
-    "RH":     "right_palm_link",
+    "LH":     "left_rubber_hand",
+    "RH":     "right_rubber_hand",
 }
 BODY_TO_FRAME: dict[str, str] = {v: k for k, v in FRAME_TO_BODY.items()}
 

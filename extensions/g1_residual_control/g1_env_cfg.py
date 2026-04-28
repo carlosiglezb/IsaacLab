@@ -18,17 +18,7 @@ and are currently stubs; fill them in once the planner is wired in.
 """
 
 import os
-
-import numpy as np
-
-import math
-
-from collections import OrderedDict
-
-from .g1_planner_constants import (
-    IRIS_0, IRIS_1, IRIS_2, IRIS_LST, IRIS_SEQ,
-    SAFE_PNT_LST, FIXED_FRAMES, ROOT_TO_TORSO_OFFSET,
-)
+from dataclasses import MISSING
 
 import isaaclab.envs.mdp as base_mdp
 import isaaclab.sim as sim_utils
@@ -76,7 +66,7 @@ class LocomanipulationG1SceneCfg(InteractiveSceneCfg):
         ),
     )
 
-    robot: ArticulationCfg = G1_PRIMITIVE_COLLISIONS
+    robot: ArticulationCfg = MISSING
 
     ground = AssetBaseCfg(
         prim_path="/World/GroundPlane",
@@ -155,15 +145,13 @@ class ObservationsCfg:
         )
 
         # ---- (b) Guide trajectory targets (world-frame position, 3-D each)
-        # PLACEHOLDER: these call stubs in mdp.py and will raise
-        # NotImplementedError until the guide planner is integrated.
         guide_left_hand_pos = ObsTerm(
             func=residual_mdp.guide_body_target_pos,
-            params={"body_name": "left_palm_link"},
+            params={"body_name": "left_rubber_hand"},
         )
         guide_right_hand_pos = ObsTerm(
             func=residual_mdp.guide_body_target_pos,
-            params={"body_name": "right_palm_link"},
+            params={"body_name": "right_rubber_hand"},
         )
         guide_torso_pos = ObsTerm(
             func=residual_mdp.guide_body_target_pos,
@@ -187,10 +175,9 @@ class ObservationsCfg:
         )
 
         # ---- (c) Tracking errors (current body pos − guide target, per link)
-        # PLACEHOLDER: stubs in mdp.py
         tracking_error_hands = ObsTerm(
             func=residual_mdp.guide_tracking_error,
-            params={"body_names": ["left_palm_link", "right_palm_link"]},
+            params={"body_names": ["left_rubber_hand", "right_rubber_hand"]},
         )
         tracking_error_torso = ObsTerm(
             func=residual_mdp.guide_tracking_error,
@@ -242,65 +229,34 @@ class ObservationsCfg:
 
         base_lin_vel = ObsTerm(
             func=base_mdp.base_lin_vel,
-            params={"asset_cfg": SceneEntityCfg("robot")},
         )
         base_ang_vel = ObsTerm(
             func=base_mdp.base_ang_vel,
-            params={"asset_cfg": SceneEntityCfg("robot")},
         )
         projected_gravity = ObsTerm(
             func=base_mdp.projected_gravity,
-            params={"asset_cfg": SceneEntityCfg("robot")},
         )
-        joint_pos = ObsTerm(
-            func=base_mdp.joint_pos_rel,
-            params={
-                "asset_cfg": SceneEntityCfg(
-                    "robot",
-                    joint_names=[
-                        ".*_shoulder_.*_joint",
-                        ".*_elbow_joint",
-                        ".*_wrist_.*_joint",
-                        ".*_hip_.*_joint",
-                        ".*_knee_joint",
-                        ".*_ankle_.*_joint",
-                        "waist_.*_joint",
-                    ],
-                )
-            },
-        )
-        joint_vel = ObsTerm(
-            func=base_mdp.joint_vel_rel,
-            scale=0.1,
-            params={
-                "asset_cfg": SceneEntityCfg(
-                    "robot",
-                    joint_names=[
-                        ".*_shoulder_.*_joint",
-                        ".*_elbow_joint",
-                        ".*_wrist_.*_joint",
-                        ".*_hip_.*_joint",
-                        ".*_knee_joint",
-                        ".*_ankle_.*_joint",
-                        "waist_.*_joint",
-                    ],
-                )
-            },
-        )
-
-        # Commands — must mirror the base checkpoint's training obs exactly.
-        velocity_command = ObsTerm(
+        velocity_commands = ObsTerm(
             func=base_mdp.generated_commands,
             params={"command_name": "base_velocity"},
         )
-        ee_left_hand_command = ObsTerm(
+        left_ee_pose_command = ObsTerm(
             func=base_mdp.generated_commands,
             params={"command_name": "ee_left_hand"},
         )
-        ee_right_hand_command = ObsTerm(
+        right_ee_pose_command = ObsTerm(
             func=base_mdp.generated_commands,
             params={"command_name": "ee_right_hand"},
         )
+        joint_pos = ObsTerm(
+            func=base_mdp.joint_pos_rel,
+            params={"asset_cfg": SceneEntityCfg("robot", joint_names=".*")},
+        )
+        joint_vel = ObsTerm(
+            func=base_mdp.joint_vel_rel,
+            params={"asset_cfg": SceneEntityCfg("robot", joint_names=".*")},
+        )
+        actions = ObsTerm(func=base_mdp.last_action)
 
         def __post_init__(self):
             self.enable_corruption = False
@@ -327,12 +283,12 @@ class RewardsCfg:
     track_left_hand_pos = RewTerm(
         func=residual_mdp.guide_pos_tracking_exp,
         weight=2.0,
-        params={"body_name": "left_palm_link", "sigma": 0.10},
+        params={"body_name": "left_rubber_hand", "sigma": 0.10},
     )
     track_right_hand_pos = RewTerm(
         func=residual_mdp.guide_pos_tracking_exp,
         weight=2.0,
-        params={"body_name": "right_palm_link", "sigma": 0.10},
+        params={"body_name": "right_rubber_hand", "sigma": 0.10},
     )
     track_torso_pos = RewTerm(
         func=residual_mdp.guide_pos_tracking_exp,
@@ -444,7 +400,7 @@ class CommandsCfg:
     # pos_x/y/z are in the robot base frame (metres); roll/pitch/yaw in rad.
     ee_left_hand = base_mdp.UniformPoseCommandCfg(
         asset_name="robot",
-        body_name="left_palm_link",
+        body_name="left_rubber_hand",
         resampling_time_range=(1.0e9, 1.0e9),
         ranges=base_mdp.UniformPoseCommandCfg.Ranges(
             pos_x=(0.25, 0.25),
@@ -458,7 +414,7 @@ class CommandsCfg:
 
     ee_right_hand = base_mdp.UniformPoseCommandCfg(
         asset_name="robot",
-        body_name="right_palm_link",
+        body_name="right_rubber_hand",
         resampling_time_range=(1.0e9, 1.0e9),
         ranges=base_mdp.UniformPoseCommandCfg.Ranges(
             pos_x=(0.25, 0.25),
@@ -505,15 +461,6 @@ class ResidualGuideTrackingEnvCfg(ManagerBasedRLEnvCfg):
     commands: CommandsCfg = CommandsCfg()
     curriculum = None
 
-    # ---- IRIS collision regions and planner constants --------------------
-    # Imported from g1_planner_constants to avoid duplicating geometry here.
-    IRIS_0 = IRIS_0
-    IRIS_1 = IRIS_1
-    IRIS_2 = IRIS_2
-    IRIS_seq = IRIS_SEQ
-    SAFE_PNT_LST: list = SAFE_PNT_LST
-    FIXED_FRAMES: list = FIXED_FRAMES
-
     # ---- Base policy ----------------------------------------------------
     # Path to the pre-trained loco-manipulation policy checkpoint.
     # Override this in a subclass or set it before instantiating the env.
@@ -524,12 +471,26 @@ class ResidualGuideTrackingEnvCfg(ManagerBasedRLEnvCfg):
     GUIDE_DATASET_PATH: str = "guide_dataset.npz"
 
     def __post_init__(self):
+        self.scene.robot = G1_PRIMITIVE_COLLISIONS.replace(prim_path="{ENV_REGEX_NS}/Robot")
+
         """Post-initialisation: sim timing and action-term configuration."""
         self.decimation = 4
-        self.episode_length_s = 20.0
+        self.episode_length_s = 15.0
         self.sim.dt = 1.0 / 200.0   # 200 Hz physics
         self.sim.render_interval = 2
 
         # Forward the base policy path into the action term so
         # JointResidualAction can load the checkpoint at startup.
         self.actions.joint_residual.base_policy_path = self.BASE_POLICY_PATH
+
+
+@configclass
+class ResidualGuideTrackingEnvCfg_PLAY(ResidualGuideTrackingEnvCfg):
+    """Play/evaluation variant: single environment, rendering enabled."""
+
+    def __post_init__(self):
+        super().__post_init__()
+        self.scene.num_envs = 1
+        self.scene.env_spacing = 2.5
+        # Render every physics step so video capture is smooth.
+        self.sim.render_interval = 1
