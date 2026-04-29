@@ -39,6 +39,8 @@ class G1ResidualGuideTrackingPPORunnerCfg(RslRlOnPolicyRunnerCfg):
     max_iterations = 3000
     save_interval = 500
     experiment_name = "g1_residual_guide_tracking"
+    logger = "wandb"
+    wandb_project = "G1_residual_guide_tracking"
 
     # Explicit obs → algorithmic-set mapping.  "base_policy" is internal to
     # JointResidualAction and must NOT appear here.

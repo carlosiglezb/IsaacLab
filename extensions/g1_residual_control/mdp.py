@@ -187,3 +187,54 @@ def guide_pos_tracking_exp(
 
     sq_err = torch.sum((current - target) ** 2, dim=-1)             # (num_envs,)
     return torch.exp(-sq_err / (sigma ** 2))                        # (num_envs,)
+
+
+def torso_forward_velocity(
+    env: ManagerBasedRLEnv,
+    asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+) -> torch.Tensor:
+    """Reward for forward (world-x) linear velocity of the robot root.
+
+    Only positive x-velocity is rewarded — backward motion returns 0.0.
+
+    Returns
+    -------
+    torch.Tensor, shape (num_envs,)
+    """
+    robot: Articulation = env.scene[asset_cfg.name]
+    return torch.clamp(robot.data.root_lin_vel_w[:, 0], min=0.0)
+
+
+def goal_not_reached_penalty(
+    env: ManagerBasedRLEnv,
+    body_names: list[str],
+    asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+) -> torch.Tensor:
+    """Terminal penalty proportional to remaining L2 distance to final guide goals.
+
+    Fires only at episode end (timeout or early termination).  Final goal
+    positions are read from the last waypoint of each env's assigned guide,
+    so they automatically incorporate per-guide XY offsets.
+
+    Returns
+    -------
+    torch.Tensor, shape (num_envs,)
+    """
+    if not hasattr(env, "guide_waypoints"):
+        return torch.zeros(env.num_envs, device=env.device)
+
+    ds = env.guide_dataset
+    robot: Articulation = env.scene[asset_cfg.name]
+
+    # Last waypoint encodes the final goal position for each env's guide.
+    goal_positions = env.guide_waypoints[:, :, -1, :]              # (E, F, 3)
+
+    total_dist = torch.zeros(env.num_envs, device=env.device)
+    for body_name in body_names:
+        frame_idx = ds.body_name_to_idx[body_name]
+        body_idx  = robot.find_bodies(body_name)[0][0]
+        current   = robot.data.body_pos_w[:, body_idx, :3]
+        goal      = goal_positions[:, frame_idx, :]
+        total_dist = total_dist + torch.norm(current - goal, dim=-1)
+
+    return total_dist * env.termination_manager.dones.float()

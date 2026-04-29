@@ -34,7 +34,6 @@ class LocomanipulationFramePlanner:
             self.aux_frames = None
 
     def plan_iris(self,
-                  p_init: dict,
                   T: float,
                   alpha: List[float],
                   w_rigid: np.ndarray,

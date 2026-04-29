@@ -26,7 +26,6 @@ def plan_multiple_iris(traversable_regions: TraversableRegions,
 
     iris_seq = traversable_regions.IRIS_seq
     safe_pnt_lst = traversable_regions.safe_points_lst
-    R = traversable_regions.reach
 
     # Stage 1: minimum-reach-distance polygonal solve
     traj, length, solver_time = solve_min_reach_iris_distance(

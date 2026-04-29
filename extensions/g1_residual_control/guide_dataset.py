@@ -28,8 +28,13 @@ fixed environment geometry; shifting would cause penetration.
 
 from __future__ import annotations
 
+from collections import OrderedDict
+from typing import Any, Callable
+
 import numpy as np
 import torch
+
+from .g1_planner_constants import SAFE_PNT_LST as _BASE_SAFE_PNT_LST
 
 
 # ---------------------------------------------------------------------------
@@ -37,7 +42,7 @@ import torch
 # ---------------------------------------------------------------------------
 
 # Planner frame name → URDF body name
-FRAME_TO_BODY: dict[str, str] = {
+FRAME_TO_BODY: dict[str, str] = OrderedDict({
     "torso":  "torso_link",
     "LF":     "left_ankle_roll_link",
     "RF":     "right_ankle_roll_link",
@@ -45,7 +50,7 @@ FRAME_TO_BODY: dict[str, str] = {
     "R_knee": "right_knee_link",
     "LH":     "left_rubber_hand",
     "RH":     "right_rubber_hand",
-}
+})
 BODY_TO_FRAME: dict[str, str] = {v: k for k, v in FRAME_TO_BODY.items()}
 
 # Frames in contact with the environment: their guides are never shifted.
@@ -73,8 +78,8 @@ def _sample_paths(paths: list, n_waypoints: int, T_plan: float) -> np.ndarray:
 
 
 def generate_guide_dataset(
-    planner,
-    p_init_nominal: dict[str, np.ndarray],
+    planner_builder_fn: Callable[[np.ndarray], Any],
+    xy_offset_bounds: np.ndarray,
     T_min: float = 2.0,
     T_max: float = 3.0,
     n_alpha: int = 20,
@@ -91,9 +96,14 @@ def generate_guide_dataset(
     solves the two-stage SOCP planner for each of the
     ``n_alpha × n_w_rigid`` (alpha, w_rigid) combinations.
 
-    Each guide independently draws a traversal duration
-    T_i ~ U(T_min, T_max), increasing speed diversity in the dataset.
-    Pass ``T`` (a fixed float) for backward-compatible behaviour.
+    Each guide independently draws:
+      - a traversal duration T_i ~ U(T_min, T_max) for speed diversity, and
+      - an XY offset (dx, dy) ~ U(-xy_offset_bounds, +xy_offset_bounds) so
+        the dataset spans a range of robot starting positions.
+
+    A fresh planner is built for each guide via ``planner_builder_fn``, which
+    receives the sampled offset and returns a fully initialised planner with
+    the corresponding shifted safe-point list.
 
     Parameter ranges
     ----------------
@@ -101,16 +111,14 @@ def generate_guide_dataset(
     w_rigid : (n_w_rigid, 3) — entries [0] and [2] drawn from U(0, 1);
               entry [1] held fixed at ``w_rigid_mid_fixed``
 
-    All guides are generated at ``p_init_nominal`` (the shift reference).
-    The per-env rigid offset is applied at runtime by ``GuideDataset.sample``.
-
     Parameters
     ----------
-    planner : LocomanipulationFramePlanner
-        Fully initialised planner (IRIS regions and motion frame sequence loaded).
-    p_init_nominal : dict[str, np.ndarray]
-        Nominal world-frame starting positions keyed by planner frame name.
-        The torso entry is stored as the shift reference.
+    planner_builder_fn : Callable[[np.ndarray], Any]
+        Called as ``planner_builder_fn(xy_offset)`` where ``xy_offset`` is a
+        shape-(2,) array [dx, dy].  Must return a fully initialised planner.
+    xy_offset_bounds : np.ndarray, shape (2,)
+        Symmetric bounds [bound_x, bound_y].  The per-guide XY offset is
+        drawn from U(-bound_x, +bound_x) × U(-bound_y, +bound_y).
     T_min : float
         Lower bound of the uniform duration distribution (default 2.0 s).
     T_max : float
@@ -138,36 +146,45 @@ def generate_guide_dataset(
     w_rigid_grid[:, 2] = rng.uniform(0.0, 1.0, n_w_rigid)
 
     # --- Metadata ---------------------------------------------------------
-    frame_names: list[str] = list(p_init_nominal.keys())
+    frame_names: list[str] = list(FRAME_TO_BODY.keys())
     body_names:  list[str] = [FRAME_TO_BODY.get(fn, fn) for fn in frame_names]
     hand_mask = np.array([fn in _CONTACT_FRAMES for fn in frame_names], dtype=bool)
-    p_nominal_torso = p_init_nominal["torso"].astype(np.float32)
+    base_torso = _BASE_SAFE_PNT_LST[0]["torso"].astype(np.float32)
 
     # --- Generation loop --------------------------------------------------
-    guides_list:   list[np.ndarray] = []
-    alpha_used:    list[np.ndarray] = []
-    w_rigid_used:  list[np.ndarray] = []
-    T_used:        list[float] = []
+    guides_list:        list[np.ndarray] = []
+    alpha_used:         list[np.ndarray] = []
+    w_rigid_used:       list[np.ndarray] = []
+    T_used:             list[float] = []
+    torso_nominal_used: list[np.ndarray] = []
 
     total = n_alpha * n_w_rigid
     for i, alpha in enumerate(alpha_grid):
         for j, w_rigid in enumerate(w_rigid_grid):
             count = i * n_w_rigid + j + 1
             T_i = float(rng.uniform(T_min, T_max))
+            xy_offset = rng.uniform(-xy_offset_bounds, xy_offset_bounds)
             print(f"[{count:3d}/{total}]  alpha={np.round(alpha, 3)}  "
-                  f"w_rigid={np.round(w_rigid, 3)}  T={T_i:.2f}s", end="  ")
+                  f"w_rigid={np.round(w_rigid, 3)}  T={T_i:.2f}s  "
+                  f"offset=[{xy_offset[0]:+.3f}, {xy_offset[1]:+.3f}]", end="  ")
             try:
+                planner = planner_builder_fn(xy_offset)
                 planner.plan_iris(
-                    p_init_nominal, T_i,
+                    T_i,
                     alpha=alpha.tolist(),
                     w_rigid=w_rigid,
                 )
                 n_phases = len(planner.fixed_frames)
-                wp = _sample_paths(planner.path, n_waypoints, T_i * n_phases)  # (F, W, 3)
+                T_i_total = T_i * n_phases
+                wp = _sample_paths(planner.path, n_waypoints, T_i_total)  # (F, W, 3)
                 guides_list.append(wp)
                 alpha_used.append(alpha.copy())
                 w_rigid_used.append(w_rigid.copy())
-                T_used.append(T_i)
+                T_used.append(T_i_total)
+                p_nominal_torso_i = base_torso.copy()
+                p_nominal_torso_i[0] += float(xy_offset[0])
+                p_nominal_torso_i[1] += float(xy_offset[1])
+                torso_nominal_used.append(p_nominal_torso_i)
                 print("ok")
             except Exception as exc:
                 print(f"FAILED ({exc})")
@@ -184,7 +201,8 @@ def generate_guide_dataset(
         guides=guides_arr.astype(np.float32),
         alpha_grid=np.array(alpha_used, dtype=np.float32),
         w_rigid_grid=np.array(w_rigid_used, dtype=np.float32),
-        p_init_nominal_torso=p_nominal_torso,
+        # shape (n_guides, 3): per-guide torso reference for runtime shifting
+        p_init_nominal_torso=np.array(torso_nominal_used, dtype=np.float32),
         T_plan=T_plan_arr.mean(),      # scalar mean for backward compat
         T_plan_arr=T_plan_arr,         # per-guide durations (n_guides,)
         frame_names=np.array(frame_names),
@@ -212,11 +230,13 @@ class GuideDataset:
     Attributes
     ----------
     guides : torch.Tensor, shape (n_guides, n_frames, n_waypoints, 3)
-        Pre-computed guide waypoints for all (alpha, w_rigid) combinations.
-    p_init_nominal_torso : torch.Tensor, shape (3,)
-        Nominal torso position used as shift reference during generation.
+        Pre-computed guide waypoints for all (alpha, w_rigid, xy_offset) combinations.
+    p_init_nominal_torso_arr : torch.Tensor, shape (n_guides, 3)
+        Per-guide nominal torso position used as shift reference at runtime.
+        Each guide was generated at a different XY offset, so each has its own
+        reference.  Old datasets with a single shape-(3,) entry are broadcast.
     T_plan : float
-        Guide duration in seconds.
+        Mean guide duration in seconds (scalar, for backward compat).
     frame_names : list[str]
         Planner frame names in dataset index order.
     body_names : list[str]
@@ -231,9 +251,16 @@ class GuideDataset:
         data = np.load(path, allow_pickle=True)
 
         self.guides = torch.from_numpy(data["guides"]).float().to(device)
-        self.p_init_nominal_torso = (
-            torch.from_numpy(data["p_init_nominal_torso"]).float().to(device)
+        self.n_guides, self.n_frames, self.n_waypoints, _ = self.guides.shape
+
+        torso_np = data["p_init_nominal_torso"]
+        if torso_np.ndim == 1:
+            # Legacy format: single (3,) nominal — broadcast to (n_guides, 3)
+            torso_np = np.broadcast_to(torso_np, (self.n_guides, 3)).copy()
+        self.p_init_nominal_torso_arr = (
+            torch.from_numpy(torso_np).float().to(device)  # (G, 3)
         )
+
         self.T_plan = float(data["T_plan"])
         if "T_plan_arr" in data:
             self.T_plan_arr = torch.from_numpy(data["T_plan_arr"]).float().to(device)
@@ -254,7 +281,6 @@ class GuideDataset:
             ~torch.from_numpy(hand_mask_np)
         ).float().to(device)                           # (F,)
 
-        self.n_guides, self.n_frames, self.n_waypoints, _ = self.guides.shape
         self.device = device
 
     # ------------------------------------------------------------------
@@ -268,10 +294,19 @@ class GuideDataset:
     ) -> tuple[torch.Tensor, torch.Tensor]:
         """Select and shift guides for a batch of environments.
 
-        A guide is drawn uniformly at random for each environment.
-        Non-contact frames (torso, feet, knees) are translated by the
-        vector from the nominal torso spawn position to the actual one.
-        Contact frames (LH, RH) are left unchanged.
+        For each environment the guide whose nominal XY torso position is
+        closest to the actual spawn torso (L2 in XY) is selected.  This
+        nearest-neighbour search is computed entirely on the GPU as a
+        batched squared-distance matrix followed by argmin:
+
+            dist_sq[e, i] = ||p_actual_xy[e] - p_nominal_xy[i]||²   (E × G)
+            idx[e]        = argmin_i  dist_sq[e, i]
+
+        The cost is O(E × G) — negligible even at E = 4096, G = 500.
+
+        After selection a small residual shift is applied to non-contact
+        frames so that the guide origin aligns exactly with the robot's
+        actual spawn position.  Contact frames (LH, RH) are left unchanged.
 
         Parameters
         ----------
@@ -284,14 +319,21 @@ class GuideDataset:
         -------
         guides : torch.Tensor, shape (num_envs, n_frames, n_waypoints, 3)
         T_per_env : torch.Tensor, shape (num_envs,)
-            Per-environment traversal duration (seconds), drawn from the
-            stored ``T_plan_arr`` if available, else broadcast ``T_plan``.
+            Per-environment traversal duration (seconds) of the selected guide.
         """
-        idx = torch.randint(0, self.n_guides, (num_envs,), device=self.device)
-        guides = self.guides[idx].clone()  # (E, F, W, 3)
+        # Nearest-neighbour guide selection in XY -------------------------
+        p_actual_xy  = p_init_torso_actual[:, :2]               # (E, 2)
+        p_nominal_xy = self.p_init_nominal_torso_arr[:, :2]     # (G, 2)
+        dist_sq = (
+            p_actual_xy[:, None, :] - p_nominal_xy[None, :, :]  # (E, G, 2)
+        ).pow(2).sum(-1)                                         # (E, G)
+        idx = dist_sq.argmin(dim=1)                              # (E,)
 
-        # Translation offset per environment
-        shift = p_init_torso_actual - self.p_init_nominal_torso  # (E, 3)
+        guides = self.guides[idx].clone()                        # (E, F, W, 3)
+
+        # Residual shift: exact alignment after NN selection --------------
+        p_nominal = self.p_init_nominal_torso_arr[idx]           # (E, 3)
+        shift = p_init_torso_actual - p_nominal                  # (E, 3)
 
         # Expand shift and mask for broadcasting:
         #   shift  : (E, 3) → (E, 1, 1, 3)

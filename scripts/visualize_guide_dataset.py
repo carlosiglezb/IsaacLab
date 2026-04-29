@@ -26,6 +26,8 @@ from mpl_toolkits.mplot3d import Axes3D  # noqa: F401
 from extensions.g1_residual_control.guide_dataset import GuideDataset
 from extensions.g1_residual_control.g1_planner_constants import IRIS_LST, SAFE_PNT_LST
 
+_BASE_TORSO_XY = SAFE_PNT_LST[0]["torso"][:2].copy()
+
 
 # ---------------------------------------------------------------------------
 # Drawing helpers
@@ -68,6 +70,10 @@ def print_dataset_summary(dataset: GuideDataset) -> None:
         print(f"  T_plan range : [{t.min():.3f}, {t.max():.3f}] s")
     print(f"  contact frames (not shifted): "
           f"{[n for n, m in zip(dataset.frame_names, (dataset.shift_mask == 0).tolist()) if m]}")
+    torso_xy = dataset.p_init_nominal_torso_arr[:, :2].numpy()
+    print(f"  torso XY nominal range: "
+          f"x=[{torso_xy[:, 0].min():+.3f}, {torso_xy[:, 0].max():+.3f}]  "
+          f"y=[{torso_xy[:, 1].min():+.3f}, {torso_xy[:, 1].max():+.3f}]")
 
 
 # ---------------------------------------------------------------------------
@@ -81,13 +87,24 @@ def visualize(dataset_path: str, n_guides: int, n_queries: int, seed: int,
 
     torch.manual_seed(seed)
 
-    # --- Sample guides using the runtime helper ----------------------------
-    # Pass the nominal torso position as the "actual" spawn so no shift is applied.
-    p_torso = dataset.p_init_nominal_torso.unsqueeze(0).expand(n_guides, -1)
-    guides, T_per_env = dataset.sample(n_guides, p_torso)   # (G, F, W, 3), (G,)
+    # --- Select guides at their generated positions (no runtime shift) ------
+    # Each guide was generated at a distinct XY offset, so there is no single
+    # "nominal torso" to broadcast.  We index the guides tensor directly so
+    # that trajectories are displayed exactly as produced by the planner.
+    # query_targets() is still exercised on the result.
+    idx = torch.randint(0, dataset.n_guides, (n_guides,))
+    guides    = dataset.guides[idx].clone()      # (G, F, W, 3)
+    T_per_env = (dataset.T_plan_arr[idx].clone() if dataset.T_plan_arr is not None
+                 else torch.full((n_guides,), dataset.T_plan))
+    torso_nominals = dataset.p_init_nominal_torso_arr[idx]  # (G, 3) — for display/shift
 
     print(f"\nSampled {n_guides} guides  |  "
           f"T per guide: {T_per_env.numpy().round(3).tolist()}")
+    for g_i, (g_idx, p_nom) in enumerate(zip(idx.tolist(), torso_nominals.numpy())):
+        xy_off = p_nom[:2] - _BASE_TORSO_XY
+        print(f"  guide {g_i} (dataset idx {g_idx:3d}): "
+              f"torso xy nominal = [{p_nom[0]:+.3f}, {p_nom[1]:+.3f}]  "
+              f"(offset [{xy_off[0]:+.3f}, {xy_off[1]:+.3f}])")
 
     frame_names = dataset.frame_names
     n_frames    = dataset.n_frames
@@ -103,16 +120,22 @@ def visualize(dataset_path: str, n_guides: int, n_queries: int, seed: int,
             _draw_box_wireframe(ax, reg['b'], color=_BOX_COLORS[reg_idx],
                                 label=f"IRIS {reg_idx}" if g == 0 else None)
 
-        # ---- Safe-point markers ------------------------------------------
+        # ---- Safe-point markers (shifted to match this guide's XY offset) --
+        xy_off = torso_nominals[g, :2].numpy() - _BASE_TORSO_XY
+        first_sp = True
         for sp_dict in SAFE_PNT_LST:
             for pos in sp_dict.values():
-                ax.scatter(*np.asarray(pos), marker='*', s=60,
+                shifted = np.asarray(pos).copy()
+                shifted[0] += xy_off[0]
+                shifted[1] += xy_off[1]
+                ax.scatter(*shifted, marker='*', s=60,
                            color='red', zorder=5, depthshade=False,
-                           label='safe pts' if g == 0 and pos is list(sp_dict.values())[0] else None)
+                           label='safe pts' if g == 0 and first_sp else None)
+                first_sp = False
 
         # ---- Query guide trajectory via GuideDataset.query_targets --------
         T_g = float(T_per_env[g])
-        t_vals  = torch.linspace(0.0, T_g * (len(SAFE_PNT_LST)-1), n_queries)                       # (Q,)
+        t_vals  = torch.linspace(0.0, T_g, n_queries)                       # (Q,)
         guide_g = guides[g:g+1].expand(n_queries, -1, -1, -1)               # (Q, F, W, 3)
         T_g_rep = T_per_env[g:g+1].expand(n_queries)                        # (Q,)
         targets = dataset.query_targets(guide_g, t_vals, T_g_rep)           # (Q, F, 3)
@@ -127,8 +150,14 @@ def visualize(dataset_path: str, n_guides: int, n_queries: int, seed: int,
             ax.scatter(*traj[0],  marker='>', s=40, color=colors[f_idx], zorder=6)
             ax.scatter(*traj[-1], marker='s', s=40, color=colors[f_idx], zorder=6)
 
+        p_nom = torso_nominals[g].numpy()
+        xy_off_g = p_nom[:2] - _BASE_TORSO_XY
         ax.set_xlabel('x (m)'); ax.set_ylabel('y (m)'); ax.set_zlabel('z (m)')
-        ax.set_title(f"Guide {g}  |  T = {T_g:.2f} s", fontsize=10)
+        ax.set_title(
+            f"Guide {g}  |  T = {T_g:.2f} s  |  "
+            f"offset = [{xy_off_g[0]:+.3f}, {xy_off_g[1]:+.3f}] m",
+            fontsize=10,
+        )
         if g == 0:
             ax.legend(loc='upper left', fontsize=7, ncol=3)
 

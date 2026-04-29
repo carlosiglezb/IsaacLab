@@ -92,6 +92,7 @@ from isaaclab_tasks.utils import get_checkpoint_path
 from isaaclab_tasks.utils.hydra import hydra_task_config
 
 # PLACEHOLDER: Extension template (do not remove this comment)
+import g1_residual_control  # noqa: F401
 
 
 @hydra_task_config(args_cli.task, args_cli.agent)

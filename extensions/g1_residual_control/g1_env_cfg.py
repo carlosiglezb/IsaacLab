@@ -316,6 +316,29 @@ class RewardsCfg:
         params={"body_name": "right_ankle_roll_link", "sigma": 0.10},
     )
 
+    # ---- Goal-reaching rewards -------------------------------------------
+    # Dense forward-progress signal: reward every step the robot moves in +x.
+    # Clipped at 0 so backward motion is not additionally penalised here.
+    torso_forward_progress = RewTerm(
+        func=residual_mdp.torso_forward_velocity,
+        weight=2.0,
+    )
+    # Sparse terminal penalty: sum of L2 distances to final guide positions
+    # across key bodies.  Fires once per episode at timeout or fall.
+    goal_not_reached = RewTerm(
+        func=residual_mdp.goal_not_reached_penalty,
+        weight=-20.0,
+        params={
+            "body_names": [
+                "torso_link",
+                "left_ankle_roll_link",
+                "right_ankle_roll_link",
+                "left_knee_link",
+                "right_knee_link",
+            ]
+        },
+    )
+
     # ---- Regularization --------------------------------------------------
     # Penalise the magnitude of the residual δq — keeps the residual small
     # so the base policy remains in control and the correction is surgical.
@@ -345,10 +368,17 @@ class TerminationsCfg:
 
     time_out = DoneTerm(func=base_mdp.time_out, time_out=True)
 
-    # Terminate if the pelvis drops below 0.5 m (robot has fallen).
+    # Terminate if the pelvis drops below 0.4 m (robot has fallen or deeply collapsed).
     robot_fell = DoneTerm(
         func=base_mdp.root_height_below_minimum,
-        params={"minimum_height": 0.3, "asset_cfg": SceneEntityCfg("robot")},
+        params={"minimum_height": 0.40, "asset_cfg": SceneEntityCfg("robot")},
+    )
+
+    # Terminate if the torso tilts more than ~35° from upright (catches sideways/forward falls
+    # that may keep the pelvis above the height threshold).
+    bad_orientation = DoneTerm(
+        func=base_mdp.bad_orientation,
+        params={"limit_angle": 0.6, "asset_cfg": SceneEntityCfg("robot")},
     )
 
 # ---------------------------------------------------------------------------
@@ -363,6 +393,28 @@ class EventsCfg:
     startup_guide_init = EventTerm(
         func=residual_mdp.startup_guide_init,
         mode="startup",
+    )
+
+    # Reset root pose and velocity to init_state (no randomisation — fixed obstacle task).
+    reset_base = EventTerm(
+        func=base_mdp.reset_root_state_uniform,
+        mode="reset",
+        params={
+            "pose_range": {},
+            "velocity_range": {},
+            "asset_cfg": SceneEntityCfg("robot"),
+        },
+    )
+
+    # Reset joint positions and velocities to their defaults.
+    reset_robot_joints = EventTerm(
+        func=base_mdp.reset_joints_by_scale,
+        mode="reset",
+        params={
+            "position_range": (1.0, 1.0),
+            "velocity_range": (0.0, 0.0),
+            "asset_cfg": SceneEntityCfg("robot"),
+        },
     )
 
     # Resample guides for environments that just reset.
@@ -490,7 +542,7 @@ class ResidualGuideTrackingEnvCfg_PLAY(ResidualGuideTrackingEnvCfg):
 
     def __post_init__(self):
         super().__post_init__()
-        self.scene.num_envs = 1
+        self.scene.num_envs = 8
         self.scene.env_spacing = 2.5
         # Render every physics step so video capture is smooth.
         self.sim.render_interval = 1
