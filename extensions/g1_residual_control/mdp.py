@@ -14,6 +14,9 @@ from isaaclab.assets import Articulation
 from isaaclab.envs import ManagerBasedRLEnv
 from isaaclab.managers import SceneEntityCfg
 
+from .g1_planner_constants import CONTACT_SURFACES, N_PHASES
+from .guide_dataset import FRAME_TO_BODY
+
 
 # ---------------------------------------------------------------------------
 # Event terms
@@ -315,3 +318,64 @@ def goal_not_reached_penalty(
         total_dist = total_dist + torch.norm(current - goal, dim=-1)
 
     return total_dist * env.termination_manager.dones.float()
+
+
+def contact_surface_proximity(
+    env: ManagerBasedRLEnv,
+    sigma: float = 0.05,
+    asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+) -> torch.Tensor:
+    """Phase-gated surface proximity reward for hands and feet.
+
+    For each motion phase the planner defines which bodies should be braced
+    against a physical surface (``CONTACT_SURFACES`` in g1_planner_constants).
+    This reward fires an exponential kernel along the single constrained axis
+    for each such body:
+
+        r = Σ_{b ∈ contacts(phase)} exp(-(body_coord[axis] - surface_w[axis])² / σ²)
+
+    where ``surface_w`` is the surface coordinate converted to world frame by
+    adding ``env.scene.env_origins[:, axis]``.  The sum is over all contact
+    bodies active in the current phase; the caller controls the overall scale
+    via the ``RewardsCfg`` weight.
+
+    Parameters
+    ----------
+    sigma : float
+        Kernel half-width in metres.  Reward = 1.0 at zero error, ~0.37 at
+        one ``sigma``, ~0.018 at two ``sigma``.  Default 0.05 m (5 cm).
+
+    Returns
+    -------
+    torch.Tensor, shape (num_envs,)
+    """
+    if not hasattr(env, "guide_T_per_env"):
+        return torch.zeros(env.num_envs, device=env.device)
+
+    robot: Articulation = env.scene[asset_cfg.name]
+
+    t_elapsed = env.episode_length_buf * env.step_dt          # (E,)
+    T_per_phase = env.guide_T_per_env / N_PHASES              # (E,)
+    phase_idx = (t_elapsed / T_per_phase).long().clamp(0, N_PHASES - 1)  # (E,)
+
+    reward = torch.zeros(env.num_envs, device=env.device)
+
+    for p, surfaces in enumerate(CONTACT_SURFACES):
+        env_mask = (phase_idx == p)                           # (E,) bool
+        if not env_mask.any():
+            continue
+
+        for frame_name, surface in surfaces.items():
+            body_name = FRAME_TO_BODY[frame_name]
+            body_idx = robot.find_bodies(body_name)[0][0]
+
+            # Body coordinate along the constrained axis in world frame.
+            body_coord = robot.data.body_pos_w[:, body_idx, surface.axis]  # (E,)
+
+            # Surface coordinate in world frame.
+            surface_w = env.scene.env_origins[:, surface.axis] + surface.value  # (E,)
+
+            d_sq = (body_coord - surface_w) ** 2              # (E,)
+            reward += torch.exp(-d_sq / sigma**2) * env_mask.float()
+
+    return reward

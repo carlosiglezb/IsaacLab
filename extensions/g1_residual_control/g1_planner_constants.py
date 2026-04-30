@@ -9,6 +9,7 @@ g1_env_cfg.py imports from here so the values stay in one place.
 from __future__ import annotations
 
 from collections import OrderedDict
+from typing import NamedTuple
 
 import numpy as np
 
@@ -112,4 +113,68 @@ FIXED_FRAMES: list[list[str]] = [
     ['RF', 'R_knee', 'LH', 'RH'],
     ['LF', 'L_knee', 'RH'],
     ['torso', 'LF', 'RF', 'L_knee', 'R_knee', 'LH'],
+]
+
+N_PHASES: int = len(FIXED_FRAMES)  # 5
+
+# ---------------------------------------------------------------------------
+# Contact surface geometry
+# ---------------------------------------------------------------------------
+# Defines the physical surface that each hand/foot body is expected to press
+# against when it appears in FIXED_FRAMES.  Knees and torso are excluded
+# because they are kinematically constrained by the planner for feasibility
+# rather than bracing against a distinct surface.
+#
+# All values are in the environment-local frame (metres).  At runtime, add
+# env.scene.env_origins[:, axis] to convert to world frame.
+#
+# axis convention: 0 = x, 1 = y, 2 = z
+#
+# Surface values are read directly from SAFE_PNT_LST:
+#   Floor contacts  (z-axis): ankle height above ground = 0.043 m
+#   Sill contact    (z-axis): RF ankle height on sill   = 0.44  m  (phase 2)
+#   Left wall  (LH, y-axis): y = +0.35 m
+#   Right wall (RH, y-axis): y = -0.35 m
+#
+# Phase 4 has LH in FIXED_FRAMES but its safe-point y ≈ 0.15 m does not
+# correspond to a wall brace, so LH is excluded from phase 4.
+
+
+class ContactSurface(NamedTuple):
+    """A 1-D planar contact constraint along a single Cartesian axis."""
+    axis: int    # 0=x, 1=y, 2=z
+    value: float # expected body coordinate in env-local frame (metres)
+
+
+# Outer list indexed by phase (0–4).
+# Inner dict maps planner frame name → ContactSurface.
+CONTACT_SURFACES: list[dict[str, ContactSurface]] = [
+    # Phase 0 — both feet on approach-side floor; hands free.
+    {
+        "LF": ContactSurface(axis=2, value=0.043),
+        "RF": ContactSurface(axis=2, value=0.043),
+    },
+    # Phase 1 — LF on floor; LH and RH brace lateral walls; RF swings to sill.
+    {
+        "LF": ContactSurface(axis=2, value=0.043),
+        "LH": ContactSurface(axis=1, value=+0.35),
+        "RH": ContactSurface(axis=1, value=-0.35),
+    },
+    # Phase 2 — RF rests on sill; LH and RH brace lateral walls; LF swings.
+    {
+        "RF": ContactSurface(axis=2, value=0.44),
+        "LH": ContactSurface(axis=1, value=+0.35),
+        "RH": ContactSurface(axis=1, value=-0.35),
+    },
+    # Phase 3 — LF on floor; RH braces right wall; LH swings to exit position.
+    {
+        "LF": ContactSurface(axis=2, value=0.043),
+        "RH": ContactSurface(axis=1, value=-0.35),
+    },
+    # Phase 4 — LF and RF on exit-side floor; LH safe-point y ≈ 0.15 (not a
+    # wall brace), so hand surface proximity is not defined here.
+    {
+        "LF": ContactSurface(axis=2, value=0.043),
+        "RF": ContactSurface(axis=2, value=0.043),
+    },
 ]

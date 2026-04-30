@@ -353,6 +353,16 @@ class RewardsCfg:
         },
     )
 
+    # ---- Contact sequence -----------------------------------------------
+    # Reward proximity to the physical surface (floor/wall) that each hand
+    # or foot should brace against during its FIXED phase.  sigma = 5 cm
+    # gives a meaningful gradient up to ~10 cm away from the surface.
+    contact_surface_proximity = RewTerm(
+        func=residual_mdp.contact_surface_proximity,
+        weight=1.5,
+        params={"sigma": 0.1},
+    )
+
     # ---- Regularization --------------------------------------------------
     # Penalise the magnitude of the residual δq — keeps the residual small
     # so the base policy remains in control and the correction is surgical.
@@ -414,8 +424,7 @@ class EventsCfg:
         func=base_mdp.reset_root_state_uniform,
         mode="reset",
         params={
-            # "pose_range": {"x": (-0.025, 0.025), "y": (-0.15, 0.15)},
-            "pose_range": {},
+            "pose_range": {"x": (-0.025, 0.025), "y": (-0.15, 0.15)},
             "velocity_range": {},
             "asset_cfg": SceneEntityCfg("robot"),
         },
