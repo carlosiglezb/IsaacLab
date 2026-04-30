@@ -142,15 +142,15 @@ def main() -> None:
                         help="Minimum traversal duration in seconds (default: 2.8)")
     parser.add_argument("--T_max", type=float, default=3.0,
                         help="Maximum traversal duration in seconds (default: 3.0)")
-    parser.add_argument("--n_alpha", type=int, default=5,
+    parser.add_argument("--n_alpha", type=int, default=10,
                         help="Number of alpha samples (default: 5)")
-    parser.add_argument("--n_w_rigid", type=int, default=5,
+    parser.add_argument("--n_w_rigid", type=int, default=10,
                         help="Number of w_rigid samples (default: 5)")
-    parser.add_argument("--n_waypoints", type=int, default=150,
-                        help="Waypoints per guide trajectory (default: 150)")
+    parser.add_argument("--n_waypoints", type=int, default=350,
+                        help="Waypoints per guide trajectory (default: 350)")
     parser.add_argument("--seed", type=int, default=42,
                         help="RNG seed for reproducibility (default: 42)")
-    parser.add_argument("--xy_offset_bounds", type=float, nargs=2, default=[0.02, 0.15],
+    parser.add_argument("--xy_offset_bounds", type=float, nargs=2, default=[0.025, 0.15],
                         metavar=("BX", "BY"),
                         help="Symmetric XY bounds for per-guide offset sampling: "
                              "dx ~ U(-BX, +BX), dy ~ U(-BY, +BY) (default: 0 0)")

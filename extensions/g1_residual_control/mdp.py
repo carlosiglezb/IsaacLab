@@ -49,8 +49,11 @@ def startup_guide_init(
     # Sample initial guides for all environments
     robot: Articulation = env.scene["robot"]
     torso_idx = robot.find_bodies("torso_link")[0][0]
-    p_torso = robot.data.body_pos_w[:, torso_idx, :3]  # (num_envs, 3)
+    p_torso_w = robot.data.body_pos_w[:, torso_idx, :3]        # (num_envs, 3)
+    p_torso = p_torso_w - env.scene.env_origins                 # env-local frame
     guides, T_per_env = ds.sample(env.num_envs, p_torso)
+    # Shift from env-local → world frame so guide targets match body_pos_w.
+    guides = guides + env.scene.env_origins[:, None, None, :]   # (E, 1, 1, 3)
     env.guide_waypoints[:] = guides
     env.guide_T_per_env[:] = T_per_env
 
@@ -71,9 +74,12 @@ def reset_guide_assignment(
     n_reset = len(env_ids)
     robot: Articulation = env.scene["robot"]
     torso_idx = robot.find_bodies("torso_link")[0][0]
-    p_torso = robot.data.body_pos_w[env_ids, torso_idx, :3]  # (n_reset, 3)
+    p_torso_w = robot.data.body_pos_w[env_ids, torso_idx, :3]  # (n_reset, 3)
+    p_torso = p_torso_w - env.scene.env_origins[env_ids]        # env-local frame
 
     new_guides, new_T = env.guide_dataset.sample(n_reset, p_torso)
+    # Shift from env-local → world frame so guide targets match body_pos_w.
+    new_guides = new_guides + env.scene.env_origins[env_ids, None, None, :]  # (n_reset, 1, 1, 3)
     env.guide_waypoints[env_ids] = new_guides
     env.guide_T_per_env[env_ids] = new_T
 
@@ -187,6 +193,77 @@ def guide_pos_tracking_exp(
 
     sq_err = torch.sum((current - target) ** 2, dim=-1)             # (num_envs,)
     return torch.exp(-sq_err / (sigma ** 2))                        # (num_envs,)
+
+
+def body_position_progress(
+    env: ManagerBasedRLEnv,
+    body_names: list[str],
+    asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+) -> torch.Tensor:
+    """Dense position-progress reward across multiple tracked bodies.
+
+    Implements the RRL/ReLIC progress signal:
+
+        r_t = Σ_i [ d_i(t-1) − d_i(t) ]
+
+    where d_i(t) = ‖p_i(t) − g_i(t)‖₂ is the L2 distance from body i's
+    world-frame position to its time-interpolated guide target.  The reward is
+    positive when the bodies collectively move closer to the guide and negative
+    when they drift away.
+
+    Returns 0 on the first step of every episode so that the stale previous
+    buffer from a prior episode cannot corrupt the signal after a reset.
+
+    Parameters
+    ----------
+    body_names : list[str]
+        URDF link names to include in the progress sum, e.g.
+        ``["torso_link", "left_rubber_hand", ...]``.
+
+    Returns
+    -------
+    torch.Tensor, shape (num_envs,)
+    """
+    if not hasattr(env, "guide_dataset"):
+        return torch.zeros(env.num_envs, device=env.device)
+
+    ds = env.guide_dataset
+    robot: Articulation = env.scene[asset_cfg.name]
+
+    t_elapsed = env.episode_length_buf * env.step_dt
+    all_targets = ds.query_targets(
+        env.guide_waypoints, t_elapsed, T_per_env=env.guide_T_per_env
+    )  # (num_envs, n_frames, 3)
+
+    # Compute current L2 distance for each tracked body
+    curr_dists = torch.zeros(env.num_envs, len(body_names), device=env.device)
+    for k, body_name in enumerate(body_names):
+        frame_idx = ds.body_name_to_idx[body_name]
+        body_idx = robot.find_bodies(body_name)[0][0]
+        current = robot.data.body_pos_w[:, body_idx, :3]   # (num_envs, 3)
+        target = all_targets[:, frame_idx, :]               # (num_envs, 3)
+        curr_dists[:, k] = torch.norm(current - target, dim=-1)
+
+    # Lazy-initialise the buffer; return zero reward on the very first call.
+    if not hasattr(env, "_pos_prog_prev_dists"):
+        env._pos_prog_prev_dists = curr_dists.clone()
+        return torch.zeros(env.num_envs, device=env.device)
+
+    prev_dists = env._pos_prog_prev_dists  # (num_envs, n_bodies)
+
+    # Summed progress; positive = getting closer to the guide.
+    progress = (prev_dists - curr_dists).sum(dim=-1)  # (num_envs,)
+
+    # Suppress the reward on the first step after each per-env reset so the
+    # stale prev_dists from the previous episode cannot generate a spurious
+    # signal.  episode_length_buf is incremented before reward computation, so
+    # it equals 1 on the first step of a new episode.
+    progress = progress.masked_fill(env.episode_length_buf == 1, 0.0)
+
+    # Advance the buffer for all environments.
+    env._pos_prog_prev_dists = curr_dists.clone()
+
+    return progress
 
 
 def torso_forward_velocity(

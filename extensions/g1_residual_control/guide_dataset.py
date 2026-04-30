@@ -17,13 +17,12 @@ Online (env reset, zero solve overhead):
     # each policy step:
     targets = dataset.query_targets(guides, t_elapsed)  # (N, F, 3)
 
-Shift semantics
----------------
-All non-hand frames (torso, feet, knees) are translated by
-    delta = p_torso_actual - p_torso_nominal
-so the guide follows the robot's actual spawn position.
-Hand frames (LH, RH) are **not** shifted because they are in contact with
-fixed environment geometry; shifting would cause penetration.
+Nearest-neighbour selection
+---------------------------
+For each environment the guide whose nominal XY torso position is closest
+to the actual spawn torso is selected.  With a sufficiently dense dataset
+the NN guide is close enough that the residual policy handles any remaining
+offset, so no rigid shift is applied after selection.
 """
 
 from __future__ import annotations
@@ -220,10 +219,10 @@ def generate_guide_dataset(
 # ---------------------------------------------------------------------------
 
 class GuideDataset:
-    """GPU-resident guide library with O(1) sample-and-shift at env reset.
+    """GPU-resident guide library with O(1) nearest-neighbour sampling at env reset.
 
     The full guide tensor is loaded onto the GPU once and stays there for the
-    entire training run.  All operations (random selection, rigid shift,
+    entire training run.  All operations (nearest-neighbour selection,
     time-indexed lookup) are differentiable GPU tensor operations with no
     CPU round-trips.
 
@@ -232,7 +231,7 @@ class GuideDataset:
     guides : torch.Tensor, shape (n_guides, n_frames, n_waypoints, 3)
         Pre-computed guide waypoints for all (alpha, w_rigid, xy_offset) combinations.
     p_init_nominal_torso_arr : torch.Tensor, shape (n_guides, 3)
-        Per-guide nominal torso position used as shift reference at runtime.
+        Per-guide nominal torso position used for nearest-neighbour selection.
         Each guide was generated at a different XY offset, so each has its own
         reference.  Old datasets with a single shape-(3,) entry are broadcast.
     T_plan : float
@@ -243,8 +242,6 @@ class GuideDataset:
         Corresponding URDF body names.
     body_name_to_idx : dict[str, int]
         Lookup from URDF body name to frame axis index.
-    shift_mask : torch.Tensor, shape (n_frames,)
-        1.0 for non-contact frames (shift applied), 0.0 for contact frames.
     """
 
     def __init__(self, path: str, device: str = "cuda"):
@@ -269,22 +266,16 @@ class GuideDataset:
 
         frame_names: list[str] = data["frame_names"].tolist()
         body_names:  list[str] = data["body_names"].tolist()
-        hand_mask_np: np.ndarray = data["hand_mask"]
 
         self.frame_names = frame_names
         self.body_names  = body_names
         self.frame_name_to_idx: dict[str, int] = {n: i for i, n in enumerate(frame_names)}
         self.body_name_to_idx:  dict[str, int] = {n: i for i, n in enumerate(body_names)}
 
-        # 1.0 → apply shift;  0.0 → keep fixed (contact frames)
-        self.shift_mask = (
-            ~torch.from_numpy(hand_mask_np)
-        ).float().to(device)                           # (F,)
-
         self.device = device
 
     # ------------------------------------------------------------------
-    # Env-reset: sample + shift
+    # Env-reset: nearest-neighbour sample
     # ------------------------------------------------------------------
 
     def sample(
@@ -292,7 +283,7 @@ class GuideDataset:
         num_envs: int,
         p_init_torso_actual: torch.Tensor,
     ) -> tuple[torch.Tensor, torch.Tensor]:
-        """Select and shift guides for a batch of environments.
+        """Select guides for a batch of environments via nearest-neighbour lookup.
 
         For each environment the guide whose nominal XY torso position is
         closest to the actual spawn torso (L2 in XY) is selected.  This
@@ -304,9 +295,8 @@ class GuideDataset:
 
         The cost is O(E × G) — negligible even at E = 4096, G = 500.
 
-        After selection a small residual shift is applied to non-contact
-        frames so that the guide origin aligns exactly with the robot's
-        actual spawn position.  Contact frames (LH, RH) are left unchanged.
+        No shift is applied after selection; with a sufficiently dense dataset
+        the residual policy handles any remaining positional offset.
 
         Parameters
         ----------
@@ -330,17 +320,6 @@ class GuideDataset:
         idx = dist_sq.argmin(dim=1)                              # (E,)
 
         guides = self.guides[idx].clone()                        # (E, F, W, 3)
-
-        # Residual shift: exact alignment after NN selection --------------
-        p_nominal = self.p_init_nominal_torso_arr[idx]           # (E, 3)
-        shift = p_init_torso_actual - p_nominal                  # (E, 3)
-
-        # Expand shift and mask for broadcasting:
-        #   shift  : (E, 3) → (E, 1, 1, 3)
-        #   mask   : (F,)   → (1, F, 1, 1)
-        shift_b = shift[:, None, None, :].expand_as(guides)       # (E, F, W, 3)
-        mask_b  = self.shift_mask[None, :, None, None]            # (1, F, 1, 1)
-        guides  = guides + shift_b * mask_b
 
         if self.T_plan_arr is not None:
             T_per_env = self.T_plan_arr[idx]                      # (E,)

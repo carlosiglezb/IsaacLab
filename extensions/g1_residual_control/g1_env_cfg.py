@@ -99,7 +99,7 @@ class ActionsCfg:
     joint_residual = JointResidualActionCfg(
         asset_name="robot",
         joint_names=[".*"],
-        scale=0.15,
+        scale=0.4,
     )
 
 
@@ -317,11 +317,23 @@ class RewardsCfg:
     )
 
     # ---- Goal-reaching rewards -------------------------------------------
-    # Dense forward-progress signal: reward every step the robot moves in +x.
-    # Clipped at 0 so backward motion is not additionally penalised here.
-    torso_forward_progress = RewTerm(
-        func=residual_mdp.torso_forward_velocity,
+    # Dense position-progress signal (ReLIC-style): reward = Σ_i [d_i(t-1) − d_i(t)]
+    # summed over all seven tracked frames.  Positive when bodies collectively
+    # move toward the guide, negative when they drift away.
+    position_progress = RewTerm(
+        func=residual_mdp.body_position_progress,
         weight=2.0,
+        params={
+            "body_names": [
+                "torso_link",
+                "left_rubber_hand",
+                "right_rubber_hand",
+                "left_ankle_roll_link",
+                "right_ankle_roll_link",
+                "left_knee_link",
+                "right_knee_link",
+            ]
+        },
     )
     # Sparse terminal penalty: sum of L2 distances to final guide positions
     # across key bodies.  Fires once per episode at timeout or fall.
@@ -335,6 +347,8 @@ class RewardsCfg:
                 "right_ankle_roll_link",
                 "left_knee_link",
                 "right_knee_link",
+                "left_rubber_hand",
+                "right_rubber_hand",
             ]
         },
     )
@@ -374,11 +388,11 @@ class TerminationsCfg:
         params={"minimum_height": 0.40, "asset_cfg": SceneEntityCfg("robot")},
     )
 
-    # Terminate if the torso tilts more than ~35° from upright (catches sideways/forward falls
+    # Terminate if the torso tilts more than ~20° from upright (catches sideways/forward falls
     # that may keep the pelvis above the height threshold).
     bad_orientation = DoneTerm(
         func=base_mdp.bad_orientation,
-        params={"limit_angle": 0.6, "asset_cfg": SceneEntityCfg("robot")},
+        params={"limit_angle": 0.35, "asset_cfg": SceneEntityCfg("robot")},
     )
 
 # ---------------------------------------------------------------------------
@@ -400,6 +414,7 @@ class EventsCfg:
         func=base_mdp.reset_root_state_uniform,
         mode="reset",
         params={
+            # "pose_range": {"x": (-0.025, 0.025), "y": (-0.15, 0.15)},
             "pose_range": {},
             "velocity_range": {},
             "asset_cfg": SceneEntityCfg("robot"),
