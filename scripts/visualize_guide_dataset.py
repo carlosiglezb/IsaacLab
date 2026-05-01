@@ -61,17 +61,19 @@ def _draw_box_wireframe(ax, b_vec, color='lightgrey', label=None):
 
 def print_dataset_summary(dataset: GuideDataset) -> None:
     print("\n=== GuideDataset summary ===")
-    print(f"  guides shape : {tuple(dataset.guides.shape)}  "
-          f"(n_guides × n_frames × n_waypoints × 3)")
-    print(f"  frames       : {dataset.frame_names}")
-    print(f"  T_plan (mean): {dataset.T_plan:.3f} s")
-    if dataset.T_plan_arr is not None:
-        t = dataset.T_plan_arr.numpy()
-        print(f"  T_plan range : [{t.min():.3f}, {t.max():.3f}] s")
-    print(f"  contact frames (not shifted): "
-          f"{[n for n, m in zip(dataset.frame_names, (dataset.shift_mask == 0).tolist()) if m]}")
+    s = dataset.ctrl_pts.shape
+    print(f"  ctrl_pts shape : {tuple(s)}  "
+          f"(n_guides={s[0]} × n_frames={s[1]} × n_segments={s[2]} × (degree+1)={s[3]} × 3)")
+    print(f"  Bezier degree  : {dataset.degree}")
+    print(f"  frames         : {dataset.frame_names}")
+    print(f"  T_plan (mean)  : {dataset.T_plan:.3f} s")
+    t = dataset.T_plan_arr.numpy()
+    print(f"  T_plan range   : [{t.min():.3f}, {t.max():.3f}] s")
+    if dataset.hand_mask is not None:
+        contact = [n for n, m in zip(dataset.frame_names, dataset.hand_mask.tolist()) if m]
+        print(f"  contact frames : {contact}")
     torso_xy = dataset.p_init_nominal_torso_arr[:, :2].numpy()
-    print(f"  torso XY nominal range: "
+    print(f"  torso XY range : "
           f"x=[{torso_xy[:, 0].min():+.3f}, {torso_xy[:, 0].max():+.3f}]  "
           f"y=[{torso_xy[:, 1].min():+.3f}, {torso_xy[:, 1].max():+.3f}]")
 
@@ -88,15 +90,13 @@ def visualize(dataset_path: str, n_guides: int, n_queries: int, seed: int,
     torch.manual_seed(seed)
 
     # --- Select guides at their generated positions (no runtime shift) ------
-    # Each guide was generated at a distinct XY offset, so there is no single
-    # "nominal torso" to broadcast.  We index the guides tensor directly so
-    # that trajectories are displayed exactly as produced by the planner.
-    # query_targets() is still exercised on the result.
+    # We index the guide tensors directly so trajectories are displayed exactly
+    # as produced by the planner. query_targets() is still exercised on the result.
     idx = torch.randint(0, dataset.n_guides, (n_guides,))
-    guides    = dataset.guides[idx].clone()      # (G, F, W, 3)
-    T_per_env = (dataset.T_plan_arr[idx].clone() if dataset.T_plan_arr is not None
-                 else torch.full((n_guides,), dataset.T_plan))
-    torso_nominals = dataset.p_init_nominal_torso_arr[idx]  # (G, 3) — for display/shift
+    ctrl_pts    = dataset.ctrl_pts[idx].clone()           # (G, F, S, D+1, 3)
+    trans_times = dataset.transition_times[idx].clone()   # (G, S+1)
+    T_per_env   = dataset.T_plan_arr[idx].clone()
+    torso_nominals = dataset.p_init_nominal_torso_arr[idx]  # (G, 3)
 
     print(f"\nSampled {n_guides} guides  |  "
           f"T per guide: {T_per_env.numpy().round(3).tolist()}")
@@ -135,11 +135,11 @@ def visualize(dataset_path: str, n_guides: int, n_queries: int, seed: int,
 
         # ---- Query guide trajectory via GuideDataset.query_targets --------
         T_g = float(T_per_env[g])
-        t_vals  = torch.linspace(0.0, T_g, n_queries)                       # (Q,)
-        guide_g = guides[g:g+1].expand(n_queries, -1, -1, -1)               # (Q, F, W, 3)
-        T_g_rep = T_per_env[g:g+1].expand(n_queries)                        # (Q,)
-        targets = dataset.query_targets(guide_g, t_vals, T_g_rep)           # (Q, F, 3)
-        pts_np  = targets.numpy()                                            # (Q, F, 3)
+        t_vals      = torch.linspace(0.0, T_g, n_queries)                        # (Q,)
+        ctrl_pts_g  = ctrl_pts[g:g+1].expand(n_queries, -1, -1, -1, -1)         # (Q, F, S, D+1, 3)
+        trans_g     = trans_times[g:g+1].expand(n_queries, -1)                   # (Q, S+1)
+        targets     = dataset.query_targets(ctrl_pts_g, trans_g, t_vals)         # (Q, F, 3)
+        pts_np      = targets.numpy()                                             # (Q, F, 3)
 
         for f_idx, fname in enumerate(frame_names):
             traj = pts_np[:, f_idx, :]                                       # (Q, 3)
@@ -184,7 +184,7 @@ def main() -> None:
                         help="Number of guides to sample and plot (default: 2)")
     parser.add_argument("--n_queries", type=int, default=350,
                         help="Time steps queried via query_targets (default: 350)")
-    parser.add_argument("--seed", type=int, default=0,
+    parser.add_argument("--seed", type=int, default=10,
                         help="RNG seed for guide sampling (default: 0)")
     parser.add_argument("--save_path", default=None,
                         help="Output PNG path (default: <dataset>_preview.png)")

@@ -13,7 +13,7 @@ This script is standalone (no Isaac Sim required). It:
 Usage (from repo root):
     python scripts/generate_guide_dataset.py \\
         --save_path guide_dataset.npz \\
-        --T_min 2.0 --T_max 3.0 --n_alpha 20 --n_w_rigid 10 --n_waypoints 150
+        --T_min 2.0 --T_max 3.0 --n_alpha 20 --n_w_rigid 10
 """
 from __future__ import annotations
 
@@ -146,8 +146,6 @@ def main() -> None:
                         help="Number of alpha samples (default: 5)")
     parser.add_argument("--n_w_rigid", type=int, default=10,
                         help="Number of w_rigid samples (default: 5)")
-    parser.add_argument("--n_waypoints", type=int, default=350,
-                        help="Waypoints per guide trajectory (default: 350)")
     parser.add_argument("--seed", type=int, default=42,
                         help="RNG seed for reproducibility (default: 42)")
     parser.add_argument("--xy_offset_bounds", type=float, nargs=2, default=[0.025, 0.15],
@@ -160,7 +158,7 @@ def main() -> None:
 
     total = args.n_alpha * args.n_w_rigid
     print(f"Generating {args.n_alpha} × {args.n_w_rigid} = {total} guides  "
-          f"(T ~ U({args.T_min}, {args.T_max})s, {args.n_waypoints} waypoints, "
+          f"(T ~ U({args.T_min}, {args.T_max})s, Bezier control points, "
           f"offset bounds=[±{xy_offset_bounds[0]:.3f}, ±{xy_offset_bounds[1]:.3f}]) ...")
 
     generate_guide_dataset(
@@ -170,7 +168,6 @@ def main() -> None:
         T_max=args.T_max,
         n_alpha=args.n_alpha,
         n_w_rigid=args.n_w_rigid,
-        n_waypoints=args.n_waypoints,
         seed=args.seed,
         save_path=args.save_path,
     )

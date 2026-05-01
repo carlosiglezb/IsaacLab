@@ -38,6 +38,7 @@ from isaaclab.utils.assets import ISAACLAB_NUCLEUS_DIR
 from isaaclab_assets import G1_PRIMITIVE_COLLISIONS
 
 from .actions_cfg import JointResidualActionCfg
+from .commands import GuideTorsoVelocityCommandCfg
 from . import mdp as residual_mdp
 import isaaclab_tasks.manager_based.locomotion.velocity.mdp as velocity_mdp
 
@@ -220,7 +221,7 @@ class ObservationsCfg:
     class BasePolicyCfg(ObsGroup):
         """Observations fed to the frozen base loco-manipulation policy.
 
-        PLACEHOLDER: mirror the exact observation format that the base
+        Mirrors the exact observation format that the base
         checkpoint was trained on.  The current layout follows the agile
         locomotion policy convention as a reasonable starting point.
         Update joint_names and any extra terms once the base policy's
@@ -298,22 +299,63 @@ class RewardsCfg:
     track_left_knee_pos = RewTerm(
         func=residual_mdp.guide_pos_tracking_exp,
         weight=1.0,
-        params={"body_name": "left_knee_link", "sigma": 0.10},
+        params={"body_name": "left_knee_link", "sigma": 0.25},
     )
     track_right_knee_pos = RewTerm(
         func=residual_mdp.guide_pos_tracking_exp,
         weight=1.0,
-        params={"body_name": "right_knee_link", "sigma": 0.10},
+        params={"body_name": "right_knee_link", "sigma": 0.25},
     )
     track_left_foot_pos = RewTerm(
         func=residual_mdp.guide_pos_tracking_exp,
         weight=1.0,
-        params={"body_name": "left_ankle_roll_link", "sigma": 0.10},
+        params={"body_name": "left_ankle_roll_link", "sigma": 0.25},
     )
     track_right_foot_pos = RewTerm(
         func=residual_mdp.guide_pos_tracking_exp,
         weight=1.0,
-        params={"body_name": "right_ankle_roll_link", "sigma": 0.10},
+        params={"body_name": "right_ankle_roll_link", "sigma": 0.25},
+    )
+
+    # ---- Guide velocity tracking (supplementary) -------------------------
+    # sigma=0.25 m/s gives useful gradient several tenths of a m/s from the
+    # target, appropriate for deliberate stepping speeds (0.1–0.5 m/s).
+    # Weights are ~25% of the matching position terms to keep velocity as a
+    # temporal-coherence hint rather than the dominant training signal.
+    track_left_hand_vel = RewTerm(
+        func=residual_mdp.guide_vel_tracking_exp,
+        weight=0.5,
+        params={"body_name": "left_rubber_hand", "sigma": 0.25},
+    )
+    track_right_hand_vel = RewTerm(
+        func=residual_mdp.guide_vel_tracking_exp,
+        weight=0.5,
+        params={"body_name": "right_rubber_hand", "sigma": 0.25},
+    )
+    track_torso_vel = RewTerm(
+        func=residual_mdp.guide_vel_tracking_exp,
+        weight=0.4,
+        params={"body_name": "torso_link", "sigma": 0.25},
+    )
+    track_left_knee_vel = RewTerm(
+        func=residual_mdp.guide_vel_tracking_exp,
+        weight=0.25,
+        params={"body_name": "left_knee_link", "sigma": 0.25},
+    )
+    track_right_knee_vel = RewTerm(
+        func=residual_mdp.guide_vel_tracking_exp,
+        weight=0.25,
+        params={"body_name": "right_knee_link", "sigma": 0.25},
+    )
+    track_left_foot_vel = RewTerm(
+        func=residual_mdp.guide_vel_tracking_exp,
+        weight=0.25,
+        params={"body_name": "left_ankle_roll_link", "sigma": 0.25},
+    )
+    track_right_foot_vel = RewTerm(
+        func=residual_mdp.guide_vel_tracking_exp,
+        weight=0.25,
+        params={"body_name": "right_ankle_roll_link", "sigma": 0.25},
     )
 
     # ---- Goal-reaching rewards -------------------------------------------
@@ -456,20 +498,18 @@ class EventsCfg:
 class CommandsCfg:
     """Commands passed to the base policy.
 
-    All ranges are collapsed to a single value (min == max) so the command
-    never resamples during an episode — the traversal scenario is fixed.
+    base_velocity is derived from the analytical Bezier torso guide velocity
+    at each policy step, expressed in the robot's heading-aligned body frame.
+    This replaces the fixed 0.4 m/s command that conflicted with the careful
+    stepping behaviour required for the knee-knocker crossing.
+
     Hand pose targets are expressed in the robot's base frame, matching the
     frame convention the base checkpoint was trained with.
     """
 
-    base_velocity = base_mdp.UniformVelocityCommandCfg(
+    base_velocity = GuideTorsoVelocityCommandCfg(
         asset_name="robot",
-        resampling_time_range=(1.0e9, 1.0e9),
-        ranges=base_mdp.UniformVelocityCommandCfg.Ranges(
-            lin_vel_x=(0.4, 0.4),
-            lin_vel_y=(0.0, 0.0),
-            ang_vel_z=(0.0, 0.0),
-        ),
+        max_speed=1.5,
     )
 
     # Left palm: forward and slightly left, arms tucked for narrow passage.

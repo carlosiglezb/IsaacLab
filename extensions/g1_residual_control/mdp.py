@@ -2,8 +2,9 @@
 
 Guide terms are implemented against ``GuideDataset``, which is loaded once at
 env startup and stored on ``env.guide_dataset``.  The per-env guide assignment
-tensor ``env.guide_waypoints`` is populated at env reset by the
-``reset_guide_assignment`` event term and queried each policy step.
+tensors ``env.guide_ctrl_pts`` and ``env.guide_transition_times`` are
+populated at env reset by the ``reset_guide_assignment`` event term
+and queried each policy step via vectorised Bezier evaluation.
 """
 
 from __future__ import annotations
@@ -29,18 +30,23 @@ def startup_guide_init(
     """Load the guide dataset and initialise per-env guide buffers.
 
     Called once with ``mode="startup"`` before any resets occur.
-    Attaches ``env.guide_dataset`` (GuideDataset) and
-    ``env.guide_waypoints`` (num_envs, n_frames, n_waypoints, 3) to the env.
+    Attaches ``env.guide_dataset`` (GuideDataset),
+    ``env.guide_ctrl_pts`` (num_envs, n_frames, n_segments, degree+1, 3), and
+    ``env.guide_transition_times`` (num_envs, n_segments+1) to the env.
     """
     from .guide_dataset import GuideDataset
 
     dataset_path: str = env.cfg.GUIDE_DATASET_PATH
     env.guide_dataset = GuideDataset(dataset_path, device=str(env.device))
 
-    # Allocate the per-env guide buffer
+    # Allocate the per-env guide buffers
     ds = env.guide_dataset
-    env.guide_waypoints = torch.zeros(
-        env.num_envs, ds.n_frames, ds.n_waypoints, 3,
+    env.guide_ctrl_pts = torch.zeros(
+        env.num_envs, ds.n_frames, ds.n_segments, ds.degree_plus_1, 3,
+        device=env.device,
+    )
+    env.guide_transition_times = torch.zeros(
+        env.num_envs, ds.n_segments + 1,
         device=env.device,
     )
 
@@ -54,10 +60,11 @@ def startup_guide_init(
     torso_idx = robot.find_bodies("torso_link")[0][0]
     p_torso_w = robot.data.body_pos_w[:, torso_idx, :3]        # (num_envs, 3)
     p_torso = p_torso_w - env.scene.env_origins                 # env-local frame
-    guides, T_per_env = ds.sample(env.num_envs, p_torso)
+    ctrl_pts, trans_times, T_per_env = ds.sample(env.num_envs, p_torso)
     # Shift from env-local → world frame so guide targets match body_pos_w.
-    guides = guides + env.scene.env_origins[:, None, None, :]   # (E, 1, 1, 3)
-    env.guide_waypoints[:] = guides
+    ctrl_pts = ctrl_pts + env.scene.env_origins[:, None, None, None, :]  # (E, 1, 1, 1, 3)
+    env.guide_ctrl_pts[:] = ctrl_pts
+    env.guide_transition_times[:] = trans_times
     env.guide_T_per_env[:] = T_per_env
 
 
@@ -80,10 +87,11 @@ def reset_guide_assignment(
     p_torso_w = robot.data.body_pos_w[env_ids, torso_idx, :3]  # (n_reset, 3)
     p_torso = p_torso_w - env.scene.env_origins[env_ids]        # env-local frame
 
-    new_guides, new_T = env.guide_dataset.sample(n_reset, p_torso)
+    new_ctrl_pts, new_trans_times, new_T = env.guide_dataset.sample(n_reset, p_torso)
     # Shift from env-local → world frame so guide targets match body_pos_w.
-    new_guides = new_guides + env.scene.env_origins[env_ids, None, None, :]  # (n_reset, 1, 1, 3)
-    env.guide_waypoints[env_ids] = new_guides
+    new_ctrl_pts = new_ctrl_pts + env.scene.env_origins[env_ids, None, None, None, :]
+    env.guide_ctrl_pts[env_ids] = new_ctrl_pts
+    env.guide_transition_times[env_ids] = new_trans_times
     env.guide_T_per_env[env_ids] = new_T
 
 
@@ -110,7 +118,7 @@ def guide_body_target_pos(
 
     t_elapsed = env.episode_length_buf * env.step_dt
     targets = ds.query_targets(
-        env.guide_waypoints, t_elapsed, T_per_env=env.guide_T_per_env
+        env.guide_ctrl_pts, env.guide_transition_times, t_elapsed
     )
     return targets[:, frame_idx, :]
 
@@ -136,7 +144,7 @@ def guide_tracking_error(
 
     t_elapsed = env.episode_length_buf * env.step_dt
     all_targets = ds.query_targets(
-        env.guide_waypoints, t_elapsed, T_per_env=env.guide_T_per_env
+        env.guide_ctrl_pts, env.guide_transition_times, t_elapsed
     )
 
     errors: list[torch.Tensor] = []
@@ -188,7 +196,7 @@ def guide_pos_tracking_exp(
 
     t_elapsed   = env.episode_length_buf * env.step_dt
     all_targets = ds.query_targets(
-        env.guide_waypoints, t_elapsed, T_per_env=env.guide_T_per_env
+        env.guide_ctrl_pts, env.guide_transition_times, t_elapsed
     )
 
     current = robot.data.body_pos_w[:, body_idx, :3]                # (num_envs, 3)
@@ -196,6 +204,56 @@ def guide_pos_tracking_exp(
 
     sq_err = torch.sum((current - target) ** 2, dim=-1)             # (num_envs,)
     return torch.exp(-sq_err / (sigma ** 2))                        # (num_envs,)
+
+
+def guide_vel_tracking_exp(
+    env: ManagerBasedRLEnv,
+    body_name: str,
+    sigma: float = 0.25,
+    asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+) -> torch.Tensor:
+    """Exponential velocity-tracking reward for a single body link.
+
+    Reward = exp(-||v_current - v_guide||² / sigma²)
+
+    ``v_guide`` is the analytical time derivative of the Bezier curve evaluated
+    at the current episode time (world frame, m/s).  ``v_current`` is the
+    world-frame linear velocity of the body's centre of mass.
+
+    A wider sigma (default 0.25 m/s) is appropriate here because velocity
+    errors are naturally larger in scale than position errors and the reward
+    should provide useful gradient several tenths of a m/s away from the target.
+
+    Parameters
+    ----------
+    body_name : str
+        URDF link name, e.g. ``'left_ankle_roll_link'``.
+    sigma : float
+        Kernel width in m/s.  Smaller → sharper peak.
+
+    Returns
+    -------
+    torch.Tensor, shape (num_envs,)
+    """
+    if not hasattr(env, "guide_dataset"):
+        return torch.zeros(env.num_envs, device=env.device)
+
+    ds = env.guide_dataset
+    robot: Articulation = env.scene[asset_cfg.name]
+
+    frame_idx = ds.body_name_to_idx[body_name]
+    body_idx  = robot.find_bodies(body_name)[0][0]
+
+    t_elapsed  = env.episode_length_buf * env.step_dt
+    all_vel    = ds.query_velocities(
+        env.guide_ctrl_pts, env.guide_transition_times, t_elapsed
+    )  # (num_envs, n_frames, 3)
+
+    current_vel = robot.data.body_lin_vel_w[:, body_idx, :]          # (num_envs, 3)
+    target_vel  = all_vel[:, frame_idx, :]                           # (num_envs, 3)
+
+    sq_err = torch.sum((current_vel - target_vel) ** 2, dim=-1)      # (num_envs,)
+    return torch.exp(-sq_err / (sigma ** 2))                         # (num_envs,)
 
 
 def body_position_progress(
@@ -235,7 +293,7 @@ def body_position_progress(
 
     t_elapsed = env.episode_length_buf * env.step_dt
     all_targets = ds.query_targets(
-        env.guide_waypoints, t_elapsed, T_per_env=env.guide_T_per_env
+        env.guide_ctrl_pts, env.guide_transition_times, t_elapsed
     )  # (num_envs, n_frames, 3)
 
     # Compute current L2 distance for each tracked body
@@ -300,14 +358,14 @@ def goal_not_reached_penalty(
     -------
     torch.Tensor, shape (num_envs,)
     """
-    if not hasattr(env, "guide_waypoints"):
+    if not hasattr(env, "guide_ctrl_pts"):
         return torch.zeros(env.num_envs, device=env.device)
 
     ds = env.guide_dataset
     robot: Articulation = env.scene[asset_cfg.name]
 
-    # Last waypoint encodes the final goal position for each env's guide.
-    goal_positions = env.guide_waypoints[:, :, -1, :]              # (E, F, 3)
+    # Last control point of last segment = endpoint of the Bezier trajectory.
+    goal_positions = env.guide_ctrl_pts[:, :, -1, -1, :]           # (E, F, 3)
 
     total_dist = torch.zeros(env.num_envs, device=env.device)
     for body_name in body_names:
