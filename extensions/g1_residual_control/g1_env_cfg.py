@@ -5,16 +5,20 @@
 
 Architecture
 ------------
-  base policy (pre-trained loco-manipulation checkpoint)
+  base controller (IK or pre-trained loco-manipulation checkpoint)
       ↓  q_base  (full-body joint targets)
   residual policy (what we are training here)
       ↓  δq       (learned correction, scaled by ``JointResidualActionCfg.scale``)
   q_cmd = q_base + δq
 
+The default base controller is an IK solver that finds joint positions
+minimising the squared distance from each tracked body to its current guide
+target (DLS, position-only).  A pre-trained frozen checkpoint can still be
+used by clearing ``ik_body_names`` and setting ``base_policy_path``.
+
 The residual policy observes proprioceptive state plus position-tracking
 errors between the current body poses and guide trajectories generated
-by the user's planner package.  Guide-related MDP terms live in ``mdp.py``
-and are currently stubs; fill them in once the planner is wired in.
+by the user's planner package.  Guide-related MDP terms live in ``mdp.py``.
 """
 
 import os
@@ -88,19 +92,30 @@ class LocomanipulationG1SceneCfg(InteractiveSceneCfg):
 class ActionsCfg:
     """Single residual action term over the full joint space.
 
-    ``JointResidualAction.apply_action()`` is responsible for:
-      1. Loading the base loco-manipulation policy from ``base_policy_path``.
-      2. Running a forward pass using the ``base_policy`` observation group.
-      3. Adding the residual network output (scaled by ``scale``) to q_base.
+    The base controller is an IK solver that targets the seven guide-tracked
+    body frames each step (torso, feet, knees, hands).  The residual policy
+    then learns δq corrections for dynamic feasibility and collision avoidance.
 
-    The base policy path is set in ``ResidualGuideTrackingEnvCfg.__post_init__``
-    so it can be overridden without touching this dataclass.
+    To fall back to a frozen loco-manipulation checkpoint instead, clear
+    ``ik_body_names`` and set ``base_policy_path`` (e.g. in a subclass
+    ``__post_init__``).
     """
 
     joint_residual = JointResidualActionCfg(
         asset_name="robot",
         joint_names=[".*"],
         scale=1.0,
+        ik_body_names=[
+            "torso_link",
+            "left_ankle_roll_link",
+            "right_ankle_roll_link",
+            "left_knee_link",
+            "right_knee_link",
+            "left_rubber_hand",
+            "right_rubber_hand",
+        ],
+        ik_lambda=0.05,
+        n_ik_iters=1,
     )
 
 
@@ -579,15 +594,16 @@ class ResidualGuideTrackingEnvCfg(ManagerBasedRLEnvCfg):
     def __post_init__(self):
         self.scene.robot = G1_PRIMITIVE_COLLISIONS.replace(prim_path="{ENV_REGEX_NS}/Robot")
 
-        """Post-initialisation: sim timing and action-term configuration."""
         self.decimation = 4
         self.episode_length_s = 15.0
         self.sim.dt = 1.0 / 200.0   # 200 Hz physics
         self.sim.render_interval = 2
 
-        # Forward the base policy path into the action term so
-        # JointResidualAction can load the checkpoint at startup.
-        self.actions.joint_residual.base_policy_path = self.BASE_POLICY_PATH
+        # Forward the base policy path only when IK mode is not active, so
+        # subclasses can switch to the frozen-checkpoint path by clearing
+        # ik_body_names and setting BASE_POLICY_PATH.
+        if not self.actions.joint_residual.ik_body_names:
+            self.actions.joint_residual.base_policy_path = self.BASE_POLICY_PATH
 
 
 @configclass
