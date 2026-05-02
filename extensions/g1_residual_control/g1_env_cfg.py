@@ -38,7 +38,7 @@ from isaaclab.utils.assets import ISAACLAB_NUCLEUS_DIR
 from isaaclab_assets import G1_PRIMITIVE_COLLISIONS
 
 from .actions_cfg import JointResidualActionCfg
-from .commands import GuideTorsoVelocityCommandCfg
+from .commands import GuideTorsoVelocityCommandCfg, GuideHandPositionCommandCfg
 from . import mdp as residual_mdp
 import isaaclab_tasks.manager_based.locomotion.velocity.mdp as velocity_mdp
 
@@ -62,7 +62,7 @@ class LocomanipulationG1SceneCfg(InteractiveSceneCfg):
             rigid_props=sim_utils.RigidBodyPropertiesCfg(kinematic_enabled=True),
         ),
         init_state=AssetBaseCfg.InitialStateCfg(
-            pos=(0.25, 0.0, 0.0),
+            pos=(0.35, 0.0, 0.0),
             rot=(0.707, 0, 0, 0.707),
         ),
     )
@@ -100,7 +100,7 @@ class ActionsCfg:
     joint_residual = JointResidualActionCfg(
         asset_name="robot",
         joint_names=[".*"],
-        scale=0.4,
+        scale=1.0,
     )
 
 
@@ -298,22 +298,22 @@ class RewardsCfg:
     )
     track_left_knee_pos = RewTerm(
         func=residual_mdp.guide_pos_tracking_exp,
-        weight=1.0,
+        weight=5.0,
         params={"body_name": "left_knee_link", "sigma": 0.25},
     )
     track_right_knee_pos = RewTerm(
         func=residual_mdp.guide_pos_tracking_exp,
-        weight=1.0,
+        weight=5.0,
         params={"body_name": "right_knee_link", "sigma": 0.25},
     )
     track_left_foot_pos = RewTerm(
         func=residual_mdp.guide_pos_tracking_exp,
-        weight=1.0,
+        weight=5.0,
         params={"body_name": "left_ankle_roll_link", "sigma": 0.25},
     )
     track_right_foot_pos = RewTerm(
         func=residual_mdp.guide_pos_tracking_exp,
-        weight=1.0,
+        weight=5.0,
         params={"body_name": "right_ankle_roll_link", "sigma": 0.25},
     )
 
@@ -402,6 +402,16 @@ class RewardsCfg:
     contact_surface_proximity = RewTerm(
         func=residual_mdp.contact_surface_proximity,
         weight=1.5,
+        params={"sigma": 0.1},
+    )
+
+    # Penalize feet that stay near the floor during their swing phase.
+    # Uses CONTACT_SURFACES to determine which foot is in swing per phase,
+    # then applies exp(-dz²/σ²) where dz is the foot height above floor level.
+    # sigma=0.05 m gives gradient up to ~10 cm; weight tunable.
+    contact_schedule_violation = RewTerm(
+        func=residual_mdp.contact_schedule_violation,
+        weight=-2.0,
         params={"sigma": 0.1},
     )
 
@@ -512,34 +522,14 @@ class CommandsCfg:
         max_speed=1.5,
     )
 
-    # Left palm: forward and slightly left, arms tucked for narrow passage.
-    # pos_x/y/z are in the robot base frame (metres); roll/pitch/yaw in rad.
-    ee_left_hand = base_mdp.UniformPoseCommandCfg(
+    ee_left_hand = GuideHandPositionCommandCfg(
         asset_name="robot",
         body_name="left_rubber_hand",
-        resampling_time_range=(1.0e9, 1.0e9),
-        ranges=base_mdp.UniformPoseCommandCfg.Ranges(
-            pos_x=(0.25, 0.25),
-            pos_y=(0.15, 0.15),
-            pos_z=(0.05, 0.05),
-            roll=(0.0, 0.0),
-            pitch=(0.0, 0.0),
-            yaw=(0.0, 0.0),
-        ),
     )
 
-    ee_right_hand = base_mdp.UniformPoseCommandCfg(
+    ee_right_hand = GuideHandPositionCommandCfg(
         asset_name="robot",
         body_name="right_rubber_hand",
-        resampling_time_range=(1.0e9, 1.0e9),
-        ranges=base_mdp.UniformPoseCommandCfg.Ranges(
-            pos_x=(0.25, 0.25),
-            pos_y=(-0.15, -0.15),
-            pos_z=(0.05, 0.05),
-            roll=(0.0, 0.0),
-            pitch=(0.0, 0.0),
-            yaw=(0.0, 0.0),
-        ),
     )
 
 

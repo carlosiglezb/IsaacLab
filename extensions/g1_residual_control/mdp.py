@@ -378,6 +378,69 @@ def goal_not_reached_penalty(
     return total_dist * env.termination_manager.dones.float()
 
 
+def contact_schedule_violation(
+    env: ManagerBasedRLEnv,
+    sigma: float = 0.05,
+    asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+) -> torch.Tensor:
+    """Penalise feet that remain near the floor during their swing phase.
+
+    ``CONTACT_SURFACES[phase]`` lists the bodies that are braced against a
+    physical surface in phase *p*.  Any foot (LF/RF) absent from that dict is
+    in swing and should be elevated.  This term fires an exponential penalty
+    proportional to how close the swing foot is to the floor:
+
+        penalty_f = exp(-dz_f² / σ²),   dz_f = foot_z_world − floor_z_world
+
+    The floor reference height (0.043 m) matches the ankle contact value in
+    ``CONTACT_SURFACES``.  The penalty is 1.0 when the foot is at floor level
+    and decays to ~0.018 at dz = 2σ (≈10 cm for the default σ = 5 cm).
+
+    Parameters
+    ----------
+    sigma : float
+        Kernel half-width in metres.  Smaller → gradient concentrated near floor.
+
+    Returns
+    -------
+    torch.Tensor, shape (num_envs,)
+        Positive values; set a negative ``weight`` in RewardsCfg to penalise.
+    """
+    if not hasattr(env, "guide_T_per_env"):
+        return torch.zeros(env.num_envs, device=env.device)
+
+    robot: Articulation = env.scene[asset_cfg.name]
+
+    t_elapsed   = env.episode_length_buf * env.step_dt
+    T_per_phase = env.guide_T_per_env / N_PHASES
+    phase_idx   = (t_elapsed / T_per_phase).long().clamp(0, N_PHASES - 1)   # (E,)
+
+    # Ankle height at floor contact (from CONTACT_SURFACES floor entries).
+    _FLOOR_Z_LOCAL = 0.043
+    floor_z_w = env.scene.env_origins[:, 2] + _FLOOR_Z_LOCAL               # (E,)
+
+    FOOT_FRAMES = {"LF": FRAME_TO_BODY["LF"], "RF": FRAME_TO_BODY["RF"]}
+
+    penalty = torch.zeros(env.num_envs, device=env.device)
+
+    for p, surfaces in enumerate(CONTACT_SURFACES):
+        env_mask = (phase_idx == p)                                          # (E,) bool
+        if not env_mask.any():
+            continue
+
+        for frame_name, body_name in FOOT_FRAMES.items():
+            if frame_name in surfaces:
+                continue   # foot is braced against a surface this phase — not in swing
+
+            body_idx = robot.find_bodies(body_name)[0][0]
+            foot_z_w = robot.data.body_pos_w[:, body_idx, 2]                # (E,)
+
+            dz = foot_z_w - floor_z_w                                       # (E,), ≥ 0
+            penalty += torch.exp(-(dz ** 2) / sigma ** 2) * env_mask.float()
+
+    return penalty
+
+
 def contact_surface_proximity(
     env: ManagerBasedRLEnv,
     sigma: float = 0.05,
