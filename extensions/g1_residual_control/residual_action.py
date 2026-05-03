@@ -4,12 +4,30 @@ from typing import TYPE_CHECKING
 
 import torch
 
+import isaaclab.sim as sim_utils
 from isaaclab.envs.mdp.actions.joint_actions import JointPositionAction
+from isaaclab.markers import VisualizationMarkers, VisualizationMarkersCfg
 from isaaclab.utils.assets import check_file_path, read_file
 
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedRLEnv
     from .actions_cfg import JointResidualActionCfg
+
+
+# Two-prototype marker config: index 0 = current (red), index 1 = desired (green).
+_GUIDE_VIS_CFG = VisualizationMarkersCfg(
+    prim_path="/World/Visuals/GuideTracking",
+    markers={
+        "current": sim_utils.SphereCfg(
+            radius=0.04,
+            visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(1.0, 0.2, 0.2)),
+        ),
+        "desired": sim_utils.SphereCfg(
+            radius=0.04,
+            visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.2, 1.0, 0.2)),
+        ),
+    },
+)
 
 
 class JointResidualAction(JointPositionAction):
@@ -170,6 +188,49 @@ class JointResidualAction(JointPositionAction):
         return q
 
     # ------------------------------------------------------------------
+    # Debug visualisation
+    # ------------------------------------------------------------------
+
+    def _visualize_guide_tracking(self) -> None:
+        """Render red spheres at current body positions and green spheres at guide targets.
+
+        Only active when ``cfg.debug_vis`` is True and IK body names are configured.
+        The ``VisualizationMarkers`` instance is created lazily on the first call.
+        """
+        if not hasattr(self._env, "guide_ctrl_pts") or self._ik_frame_indices is None:
+            return
+
+        # Lazily create the USD instancer the first time we need it.
+        if not hasattr(self, "_vis_markers"):
+            self._vis_markers = VisualizationMarkers(_GUIDE_VIS_CFG)
+
+        robot = self._asset
+        env = self._env
+
+        t_elapsed = env.episode_length_buf * env.step_dt
+        all_targets = env.guide_dataset.query_targets(
+            env.guide_ctrl_pts, env.guide_transition_times, t_elapsed
+        )  # (N, n_frames, 3)
+
+        # Stack positions across all tracked bodies: (N, B, 3)
+        curr_pos = torch.stack(
+            [robot.data.body_pos_w[:, idx, :3] for idx in self._ik_body_indices], dim=1
+        )
+        des_pos = torch.stack(
+            [all_targets[:, idx, :] for idx in self._ik_frame_indices], dim=1
+        )
+
+        N, B = curr_pos.shape[:2]
+        # Concatenate: first N*B current (prototype 0), then N*B desired (prototype 1).
+        translations = torch.cat(
+            [curr_pos.reshape(N * B, 3), des_pos.reshape(N * B, 3)], dim=0
+        )
+        marker_indices = torch.zeros(2 * N * B, dtype=torch.long, device=self.device)
+        marker_indices[N * B :] = 1
+
+        self._vis_markers.visualize(translations=translations, marker_indices=marker_indices)
+
+    # ------------------------------------------------------------------
     # ActionTerm interface
     # ------------------------------------------------------------------
 
@@ -192,3 +253,7 @@ class JointResidualAction(JointPositionAction):
 
         # 3. Apply joint position targets.
         self._asset.set_joint_position_target(q_cmd, joint_ids=self._joint_ids)
+
+        # 4. Optional per-step visualisation of current vs. desired body positions.
+        if self.cfg.debug_vis and self._ik_body_indices:
+            self._visualize_guide_tracking()

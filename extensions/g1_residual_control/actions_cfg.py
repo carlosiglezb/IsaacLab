@@ -59,3 +59,12 @@ class JointResidualActionCfg(JointPositionActionCfg):
 
     # Observation group whose concatenated tensor is fed to the base policy.
     base_policy_obs_group: str = "base_policy"
+
+    # ------------------------------------------------------------------
+    # Debug visualisation
+    # ------------------------------------------------------------------
+
+    # When True, renders red spheres at the current body positions and green
+    # spheres at the guide target positions each step.  Intended for play mode;
+    # leave False during training to avoid USD overhead.
+    debug_vis: bool = False

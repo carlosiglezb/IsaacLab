@@ -591,6 +591,11 @@ class ResidualGuideTrackingEnvCfg(ManagerBasedRLEnvCfg):
     # Path to the .npz file produced by generate_guide_dataset().
     GUIDE_DATASET_PATH: str = "guide_dataset.npz"
 
+    # ---- Debug visualisation --------------------------------------------
+    # When True, renders red spheres at current body positions and green
+    # spheres at guide targets each step.  Leave False during training.
+    DEBUG_VIS: bool = True
+
     def __post_init__(self):
         self.scene.robot = G1_PRIMITIVE_COLLISIONS.replace(prim_path="{ENV_REGEX_NS}/Robot")
 
@@ -605,10 +610,14 @@ class ResidualGuideTrackingEnvCfg(ManagerBasedRLEnvCfg):
         if not self.actions.joint_residual.ik_body_names:
             self.actions.joint_residual.base_policy_path = self.BASE_POLICY_PATH
 
+        self.actions.joint_residual.debug_vis = self.DEBUG_VIS
+
 
 @configclass
 class ResidualGuideTrackingEnvCfg_PLAY(ResidualGuideTrackingEnvCfg):
     """Play/evaluation variant: single environment, rendering enabled."""
+
+    DEBUG_VIS: bool = True  # show current (red) vs. desired (green) body positions
 
     def __post_init__(self):
         super().__post_init__()
