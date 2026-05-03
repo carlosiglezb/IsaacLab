@@ -30,6 +30,12 @@ class JointResidualActionCfg(JointPositionActionCfg):
     asset_name: str = "robot"
     joint_names: list[str] = [".*"]
 
+    # The residual δq is an absolute correction in joint space, not a delta
+    # from the default pose.  The parent class adds default_joint_pos as an
+    # offset when use_default_offset=True, which would double-count the
+    # default configuration and send joints past their limits.
+    use_default_offset: bool = False
+
     # Residual scale: keep δq small relative to the base controller's output.
     scale: float = 0.15
 

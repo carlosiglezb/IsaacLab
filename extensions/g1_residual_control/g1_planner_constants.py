@@ -19,7 +19,8 @@ import numpy as np
 # Translation from the G1 pelvis (root) frame to the torso frame origin,
 # used to shift reachability halfspace offsets into the root frame.
 ROOT_TO_TORSO_OFFSET: list[float] = [-0.0039635, 0.0, 0.164]
-# TARGET_TO_CURRENT_TORSO_OFFSET: list[float] = [0.0487, -0.02035, 0.11024]
+# TARGET_TO_CURRENT_TORSO_OFFSET: list[float] = [-0.0487, 0.02035, -0.11024]
+TARGET_TO_CURRENT_TORSO_OFFSET: list[float] = [0.0, 0.0, -0.11024]
 
 # ---------------------------------------------------------------------------
 # IRIS collision-free regions

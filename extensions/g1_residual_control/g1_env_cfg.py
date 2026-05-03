@@ -104,7 +104,7 @@ class ActionsCfg:
     joint_residual = JointResidualActionCfg(
         asset_name="robot",
         joint_names=[".*"],
-        scale=1.0,
+        scale=0.3,
         ik_body_names=[
             "torso_link",
             "left_ankle_roll_link",
@@ -115,7 +115,7 @@ class ActionsCfg:
             "right_rubber_hand",
         ],
         ik_lambda=0.05,
-        n_ik_iters=1,
+        n_ik_iters=3,
     )
 
 
@@ -298,37 +298,37 @@ class RewardsCfg:
     # ---- Guide position tracking -----------------------------------------
     track_left_hand_pos = RewTerm(
         func=residual_mdp.guide_pos_tracking_exp,
-        weight=2.0,
+        weight=0.5,
         params={"body_name": "left_rubber_hand", "sigma": 0.10},
     )
     track_right_hand_pos = RewTerm(
         func=residual_mdp.guide_pos_tracking_exp,
-        weight=2.0,
+        weight=0.5,
         params={"body_name": "right_rubber_hand", "sigma": 0.10},
     )
     track_torso_pos = RewTerm(
         func=residual_mdp.guide_pos_tracking_exp,
-        weight=1.5,
+        weight=0.25,
         params={"body_name": "torso_link", "sigma": 0.15},
     )
     track_left_knee_pos = RewTerm(
         func=residual_mdp.guide_pos_tracking_exp,
-        weight=5.0,
+        weight=0.1,
         params={"body_name": "left_knee_link", "sigma": 0.25},
     )
     track_right_knee_pos = RewTerm(
         func=residual_mdp.guide_pos_tracking_exp,
-        weight=5.0,
+        weight=0.1,
         params={"body_name": "right_knee_link", "sigma": 0.25},
     )
     track_left_foot_pos = RewTerm(
         func=residual_mdp.guide_pos_tracking_exp,
-        weight=5.0,
+        weight=0.5,
         params={"body_name": "left_ankle_roll_link", "sigma": 0.25},
     )
     track_right_foot_pos = RewTerm(
         func=residual_mdp.guide_pos_tracking_exp,
-        weight=5.0,
+        weight=0.5,
         params={"body_name": "right_ankle_roll_link", "sigma": 0.25},
     )
 
@@ -337,41 +337,41 @@ class RewardsCfg:
     # target, appropriate for deliberate stepping speeds (0.1–0.5 m/s).
     # Weights are ~25% of the matching position terms to keep velocity as a
     # temporal-coherence hint rather than the dominant training signal.
-    track_left_hand_vel = RewTerm(
-        func=residual_mdp.guide_vel_tracking_exp,
-        weight=0.5,
-        params={"body_name": "left_rubber_hand", "sigma": 0.25},
-    )
-    track_right_hand_vel = RewTerm(
-        func=residual_mdp.guide_vel_tracking_exp,
-        weight=0.5,
-        params={"body_name": "right_rubber_hand", "sigma": 0.25},
-    )
-    track_torso_vel = RewTerm(
-        func=residual_mdp.guide_vel_tracking_exp,
-        weight=0.4,
-        params={"body_name": "torso_link", "sigma": 0.25},
-    )
-    track_left_knee_vel = RewTerm(
-        func=residual_mdp.guide_vel_tracking_exp,
-        weight=0.25,
-        params={"body_name": "left_knee_link", "sigma": 0.25},
-    )
-    track_right_knee_vel = RewTerm(
-        func=residual_mdp.guide_vel_tracking_exp,
-        weight=0.25,
-        params={"body_name": "right_knee_link", "sigma": 0.25},
-    )
-    track_left_foot_vel = RewTerm(
-        func=residual_mdp.guide_vel_tracking_exp,
-        weight=0.25,
-        params={"body_name": "left_ankle_roll_link", "sigma": 0.25},
-    )
-    track_right_foot_vel = RewTerm(
-        func=residual_mdp.guide_vel_tracking_exp,
-        weight=0.25,
-        params={"body_name": "right_ankle_roll_link", "sigma": 0.25},
-    )
+    # track_left_hand_vel = RewTerm(
+    #     func=residual_mdp.guide_vel_tracking_exp,
+    #     weight=0.5,
+    #     params={"body_name": "left_rubber_hand", "sigma": 0.25},
+    # )
+    # track_right_hand_vel = RewTerm(
+    #     func=residual_mdp.guide_vel_tracking_exp,
+    #     weight=0.5,
+    #     params={"body_name": "right_rubber_hand", "sigma": 0.25},
+    # )
+    # track_torso_vel = RewTerm(
+    #     func=residual_mdp.guide_vel_tracking_exp,
+    #     weight=0.4,
+    #     params={"body_name": "torso_link", "sigma": 0.25},
+    # )
+    # track_left_knee_vel = RewTerm(
+    #     func=residual_mdp.guide_vel_tracking_exp,
+    #     weight=0.25,
+    #     params={"body_name": "left_knee_link", "sigma": 0.25},
+    # )
+    # track_right_knee_vel = RewTerm(
+    #     func=residual_mdp.guide_vel_tracking_exp,
+    #     weight=0.25,
+    #     params={"body_name": "right_knee_link", "sigma": 0.25},
+    # )
+    # track_left_foot_vel = RewTerm(
+    #     func=residual_mdp.guide_vel_tracking_exp,
+    #     weight=0.25,
+    #     params={"body_name": "left_ankle_roll_link", "sigma": 0.25},
+    # )
+    # track_right_foot_vel = RewTerm(
+    #     func=residual_mdp.guide_vel_tracking_exp,
+    #     weight=0.25,
+    #     params={"body_name": "right_ankle_roll_link", "sigma": 0.25},
+    # )
 
     # ---- Goal-reaching rewards -------------------------------------------
     # Dense position-progress signal (ReLIC-style): reward = Σ_i [d_i(t-1) − d_i(t)]
@@ -394,21 +394,21 @@ class RewardsCfg:
     )
     # Sparse terminal penalty: sum of L2 distances to final guide positions
     # across key bodies.  Fires once per episode at timeout or fall.
-    goal_not_reached = RewTerm(
-        func=residual_mdp.goal_not_reached_penalty,
-        weight=-20.0,
-        params={
-            "body_names": [
-                "torso_link",
-                "left_ankle_roll_link",
-                "right_ankle_roll_link",
-                "left_knee_link",
-                "right_knee_link",
-                "left_rubber_hand",
-                "right_rubber_hand",
-            ]
-        },
-    )
+    # goal_not_reached = RewTerm(
+    #     func=residual_mdp.goal_not_reached_penalty,
+    #     weight=-20.0,
+    #     params={
+    #         "body_names": [
+    #             "torso_link",
+    #             "left_ankle_roll_link",
+    #             "right_ankle_roll_link",
+    #             "left_knee_link",
+    #             "right_knee_link",
+    #             "left_rubber_hand",
+    #             "right_rubber_hand",
+    #         ]
+    #     },
+    # )
 
     # ---- Contact sequence -----------------------------------------------
     # Reward proximity to the physical surface (floor/wall) that each hand
@@ -594,7 +594,7 @@ class ResidualGuideTrackingEnvCfg(ManagerBasedRLEnvCfg):
     # ---- Debug visualisation --------------------------------------------
     # When True, renders red spheres at current body positions and green
     # spheres at guide targets each step.  Leave False during training.
-    DEBUG_VIS: bool = True
+    DEBUG_VIS: bool = False
 
     def __post_init__(self):
         self.scene.robot = G1_PRIMITIVE_COLLISIONS.replace(prim_path="{ENV_REGEX_NS}/Robot")

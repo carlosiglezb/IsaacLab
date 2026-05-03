@@ -149,8 +149,9 @@ class JointResidualAction(JointPositionAction):
             env.guide_ctrl_pts, env.guide_transition_times, t_elapsed
         )  # (N, n_frames, 3)
 
-        # Start from current joint positions.
-        q = robot.data.joint_pos[:, self._joint_ids].clone()  # (N, n_joints)
+        # Start from default joint positions so the PD controller targets a stable
+        # configuration rather than tracking the robot's own sagging state.
+        q = robot.data.default_joint_pos[:, self._joint_ids].clone()  # (N, n_joints)
         lam2 = self.cfg.ik_lambda ** 2
         n_bodies = len(self._ik_body_indices)
         m = 3 * n_bodies  # rows of the stacked Jacobian

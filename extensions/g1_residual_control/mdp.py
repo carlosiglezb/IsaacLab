@@ -15,7 +15,7 @@ from isaaclab.assets import Articulation
 from isaaclab.envs import ManagerBasedRLEnv
 from isaaclab.managers import SceneEntityCfg
 
-from .g1_planner_constants import CONTACT_SURFACES, N_PHASES
+from .g1_planner_constants import CONTACT_SURFACES, N_PHASES, TARGET_TO_CURRENT_TORSO_OFFSET
 from .guide_dataset import FRAME_TO_BODY
 
 
@@ -67,6 +67,12 @@ def startup_guide_init(
     env.guide_transition_times[:] = trans_times
     env.guide_T_per_env[:] = T_per_env
 
+    # Temporary offset correction: torso guide is off by TARGET_TO_CURRENT_TORSO_OFFSET.
+    # Remove once the dataset generation applies this offset at source.
+    _torso_fidx = ds.frame_name_to_idx["torso"]
+    _torso_offset = torch.tensor(TARGET_TO_CURRENT_TORSO_OFFSET, device=env.device, dtype=torch.float32)
+    env.guide_ctrl_pts[:, _torso_fidx] += _torso_offset
+
 
 def reset_guide_assignment(
     env: ManagerBasedRLEnv,
@@ -93,6 +99,32 @@ def reset_guide_assignment(
     env.guide_ctrl_pts[env_ids] = new_ctrl_pts
     env.guide_transition_times[env_ids] = new_trans_times
     env.guide_T_per_env[env_ids] = new_T
+
+    # Temporary offset correction: torso guide is off by TARGET_TO_CURRENT_TORSO_OFFSET.
+    # Remove once the dataset generation applies this offset at source.
+    _torso_fidx = env.guide_dataset.frame_name_to_idx["torso"]
+    _torso_offset = torch.tensor(TARGET_TO_CURRENT_TORSO_OFFSET, device=env.device, dtype=torch.float32)
+    env.guide_ctrl_pts[env_ids, _torso_fidx] += _torso_offset
+
+
+    if not hasattr(env, '_reset_alignment_logged'):
+        env._reset_alignment_logged = True
+        from .guide_dataset import FRAME_TO_BODY
+
+        t0 = torch.zeros(len(env_ids), device=env.device)
+        ctrl_sub = env.guide_ctrl_pts[env_ids]
+        trans_sub = env.guide_transition_times[env_ids]
+        targets_t0 = env.guide_dataset.query_targets(ctrl_sub, trans_sub, t0)
+        print("\n[Reset alignment] actual body pos vs guide t=0 target (env-local frame):")
+        for i, (frame_name, body_name) in enumerate(FRAME_TO_BODY.items()):
+            body_ids, _ = robot.find_bodies(body_name)
+            actual_w = robot.data.body_pos_w[env_ids[0], body_ids[0], :3]
+            guide_w = targets_t0[0, i]
+            err = (actual_w - guide_w).norm().item()
+            actual_loc = actual_w - env.scene.env_origins[env_ids[0]]
+            guide_loc = guide_w - env.scene.env_origins[env_ids[0]]
+            print(f"  {frame_name:8s}: actual={actual_loc.tolist()}  guide={guide_loc.tolist()}  err={err:.4f}m")
+        print()
 
 
 # ---------------------------------------------------------------------------
